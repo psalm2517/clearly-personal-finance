@@ -459,88 +459,7 @@ class DashboardScreen extends ConsumerWidget {
           },
         ),
         kSectionGap,
-        FutureBuilder<List<({DateTime date, int balanceCents})>>(
-          future: repo.projectCashFlow(profileId: profileId),
-          builder: (context, snap) {
-            final points = snap.data ?? [];
-            if (points.isEmpty) return const SizedBox.shrink();
-            final start = points.first.balanceCents;
-            final end = points.last.balanceCents;
-            final lowest = points
-                .map((p) => p.balanceCents)
-                .reduce((a, b) => a < b ? a : b);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader(
-                  'Projected cash balance',
-                  icon: Icons.trending_up,
-                  info: const InfoButton(
-                    title: 'Projected cash balance',
-                    body: [
-                      'A projection of your balance, not your flow — see '
-                          '"Cashflow" below for money in versus out by '
-                          'month. This is where checking, savings and cash '
-                          'is headed over the next 60 days, not a '
-                          'prediction of unplanned spending, just what '
-                          'Clearly already knows is coming: scheduled '
-                          'paychecks and bills.',
-                      'Investment, retirement and other account types are '
-                          'left out, the same way the Accounts screen splits '
-                          'Cash from Assets — this is about money you can '
-                          'actually spend.',
-                      'Card and loan payments, and anything not entered as '
-                          'a bill or a paycheck schedule, are not included. '
-                          'This gets more accurate the more of your '
-                          'recurring money is set up in Clearly.',
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      MoneyText(
-                        fmtCents(end),
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              fontFamily: 'monospace',
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Pill(
-                        '${end >= start ? '+' : ''}'
-                        '${fmtCents(end - start)} projected over '
-                        '${points.length - 1} days'
-                        '${lowest < 0 ? ' • dips negative' : ''}',
-                        color: lowest < 0
-                            ? scheme.error
-                            : end >= start
-                            ? scheme.primary
-                            : scheme.error,
-                      ),
-                      const SizedBox(height: 16),
-                      _HoverLineChart(
-                        height: 140,
-                        dates: [for (final p in points) p.date],
-                        values: [for (final p in points) p.balanceCents],
-                        painterBuilder: (hover) => _ProjectionChartPainter(
-                          points: points,
-                          line: scheme.primary,
-                          negative: scheme.error,
-                          grid: scheme.outline,
-                          hoverIndex: hover,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
+        _ProjectedCashBalanceSection(profileId: profileId, scheme: scheme),
         kSectionGap,
         _dashRow(
           StreamBuilder<List<CreditCard>>(
@@ -1749,6 +1668,159 @@ class _NetWorthChartPainter extends CustomPainter {
       old.history != history ||
       old.line != line ||
       old.hoverIndex != hoverIndex;
+}
+
+/// The projected cash balance chart with a 30/60/90-day window toggle and a
+/// warning banner if the projection ever dips negative in that window.
+class _ProjectedCashBalanceSection extends ConsumerStatefulWidget {
+  const _ProjectedCashBalanceSection(
+      {required this.profileId, required this.scheme});
+
+  final int profileId;
+  final ColorScheme scheme;
+
+  @override
+  ConsumerState<_ProjectedCashBalanceSection> createState() =>
+      _ProjectedCashBalanceSectionState();
+}
+
+class _ProjectedCashBalanceSectionState
+    extends ConsumerState<_ProjectedCashBalanceSection> {
+  int _days = 60;
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = ref.watch(repositoryProvider);
+    final scheme = widget.scheme;
+    return FutureBuilder<List<({DateTime date, int balanceCents})>>(
+      future: repo.projectCashFlow(
+          profileId: widget.profileId, days: _days),
+      builder: (context, snap) {
+        final points = snap.data ?? [];
+        if (points.isEmpty) return const SizedBox.shrink();
+        final start = points.first.balanceCents;
+        final end = points.last.balanceCents;
+        final lowestPoint = points
+            .reduce((a, b) => a.balanceCents < b.balanceCents ? a : b);
+        final lowest = lowestPoint.balanceCents;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: SectionHeader(
+                    'Projected cash balance',
+                    icon: Icons.trending_up,
+                    info: const InfoButton(
+                      title: 'Projected cash balance',
+                      body: [
+                        'A projection of your balance, not your flow — see '
+                            '"Cashflow" below for money in versus out by '
+                            'month. This is where checking, savings and '
+                            'cash is headed, not a prediction of unplanned '
+                            'spending, just what Clearly already knows is '
+                            'coming: scheduled paychecks, bills, recurring '
+                            'transactions, and any recurring transfer that '
+                            'actually moves money into or out of cash.',
+                        'Investment, retirement and other account types are '
+                            'left out, the same way the Accounts screen '
+                            'splits Cash from Assets — this is about money '
+                            'you can actually spend. A transfer between two '
+                            'cash accounts doesn\'t change this number '
+                            'either, since the total stays the same either '
+                            'way.',
+                        'Card and loan payments, and anything not entered '
+                            'on a schedule, are not included. This gets '
+                            'more accurate the more of your recurring money '
+                            'is set up in Clearly.',
+                      ],
+                    ),
+                  ),
+                ),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 30, label: Text('30d')),
+                    ButtonSegment(value: 60, label: Text('60d')),
+                    ButtonSegment(value: 90, label: Text('90d')),
+                  ],
+                  selected: {_days},
+                  onSelectionChanged: (s) => setState(() => _days = s.first),
+                ),
+              ],
+            ),
+            if (lowest < 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Card(
+                  color: scheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_outlined,
+                            color: scheme.onErrorContainer),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Projected to go ${fmtCents(lowest)} on '
+                            '${lowestPoint.date.month}/${lowestPoint.date.day}'
+                            ' if nothing changes.',
+                            style: TextStyle(color: scheme.onErrorContainer),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MoneyText(
+                    fmtCents(end),
+                    style: Theme.of(context).textTheme.headlineMedium
+                        ?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Pill(
+                    '${end >= start ? '+' : ''}'
+                    '${fmtCents(end - start)} projected over '
+                    '${points.length - 1} days'
+                    '${lowest < 0 ? ' • dips negative' : ''}',
+                    color: lowest < 0
+                        ? scheme.error
+                        : end >= start
+                        ? scheme.primary
+                        : scheme.error,
+                  ),
+                  const SizedBox(height: 16),
+                  _HoverLineChart(
+                    height: 140,
+                    dates: [for (final p in points) p.date],
+                    values: [for (final p in points) p.balanceCents],
+                    painterBuilder: (hover) => _ProjectionChartPainter(
+                      points: points,
+                      line: scheme.primary,
+                      negative: scheme.error,
+                      grid: scheme.outline,
+                      hoverIndex: hover,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// A forward-looking cash balance line — same visual language as the net

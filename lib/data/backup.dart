@@ -88,6 +88,16 @@ class BackupService {
         where: byProfileId,
       ),
       (name: 'importBatches', table: _db.importBatches, where: byProfileId),
+      (
+        name: 'recurringTransactions',
+        table: _db.recurringTransactions,
+        where: byProfileId,
+      ),
+      (
+        name: 'recurringTransactionLogs',
+        table: _db.recurringTransactionLogs,
+        where: byProfileId,
+      ),
       (name: 'budgetEntries', table: _db.budgetEntries, where: byProfileId),
       (
         name: 'transactionSplits',

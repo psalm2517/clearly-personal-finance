@@ -162,6 +162,128 @@ void main() {
     expect(points.last.balanceCents, 0);
   });
 
+  test('a recurring expense linked to a cash account subtracts on its date',
+      () async {
+    final checking = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Checking',
+        type: AccountType.checking,
+        balanceCents: const Value(50000)));
+    await repo.upsertRecurringTransaction(RecurringTransactionsCompanion.insert(
+      profileId: profileId,
+      name: 'Netflix',
+      type: EntryType.expense,
+      amountCents: 1599,
+      frequency: PayFrequency.monthly,
+      anchorDate: daysFromNow(2),
+      accountId: Value(checking),
+    ));
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 50000 - 1599);
+  });
+
+  test(
+      'a recurring transaction linked to a non-cash account is excluded from '
+      'the projection', () async {
+    final brokerage = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Brokerage',
+        type: AccountType.investment,
+        balanceCents: const Value(500000)));
+    await repo.upsertRecurringTransaction(RecurringTransactionsCompanion.insert(
+      profileId: profileId,
+      name: 'Dividend reinvestment',
+      type: EntryType.income,
+      amountCents: 5000,
+      frequency: PayFrequency.monthly,
+      anchorDate: daysFromNow(2),
+      accountId: Value(brokerage),
+    ));
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 0,
+        reason: 'money into a non-cash account is not spendable cash');
+  });
+
+  test('a recurring transaction with no account link still counts',
+      () async {
+    await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Checking',
+        type: AccountType.checking,
+        balanceCents: const Value(0)));
+    await repo.upsertRecurringTransaction(RecurringTransactionsCompanion.insert(
+      profileId: profileId,
+      name: 'Side gig',
+      type: EntryType.income,
+      amountCents: 10000,
+      frequency: PayFrequency.monthly,
+      anchorDate: daysFromNow(2),
+    ));
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 10000);
+  });
+
+  test('a transfer between two cash accounts does not change the total',
+      () async {
+    final checking = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Checking',
+        type: AccountType.checking,
+        balanceCents: const Value(50000)));
+    final savings = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Savings',
+        type: AccountType.savings,
+        balanceCents: const Value(10000)));
+    await repo.upsertRecurringTransfer(RecurringTransfersCompanion.insert(
+      profileId: profileId,
+      name: 'To savings',
+      fromAccountId: checking,
+      toAccountId: savings,
+      amountCents: 20000,
+      frequency: PayFrequency.monthly,
+      anchorDate: daysFromNow(2),
+    ));
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 60000,
+        reason: 'moving cash between your own cash accounts nets to zero');
+  });
+
+  test('a transfer from cash into a non-cash account reduces the total',
+      () async {
+    final checking = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Checking',
+        type: AccountType.checking,
+        balanceCents: const Value(50000)));
+    final brokerage = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Brokerage',
+        type: AccountType.investment,
+        balanceCents: const Value(0)));
+    await repo.upsertRecurringTransfer(RecurringTransfersCompanion.insert(
+      profileId: profileId,
+      name: 'Invest',
+      fromAccountId: checking,
+      toAccountId: brokerage,
+      amountCents: 20000,
+      frequency: PayFrequency.monthly,
+      anchorDate: daysFromNow(2),
+    ));
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 30000);
+  });
+
   test('projection is per profile', () async {
     final other =
         await repo.createProfile(ProfilesCompanion.insert(name: 'Mom'));

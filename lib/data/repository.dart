@@ -20,6 +20,20 @@ typedef AccountActivity = ({
   AccountActivityKind kind,
 });
 
+/// One kind of source feeding [HomebaseRepository.upcomingItems].
+enum UpcomingKind { bill, paycheck, transfer, recurring }
+
+/// One future occurrence known ahead of time — a bill coming due, a
+/// paycheck landing, a scheduled transfer, or a general recurring
+/// transaction. [amountCents] is signed the way it moves money: negative
+/// for a bill, transfer-out or recurring expense, positive otherwise.
+typedef UpcomingItem = ({
+  DateTime date,
+  String label,
+  int amountCents,
+  UpcomingKind kind,
+});
+
 /// All data access goes through this layer. Every query scoped to user data
 /// takes a required [profileId] — widgets never touch Drift directly, and
 /// there is no way to ask for "all rows" across profiles. This enforces the
@@ -259,6 +273,13 @@ class HomebaseRepository {
               b.profileId.equals(profileId) & b.accountId.equals(id)))
         .write(const ImportBatchesCompanion(accountId: Value(null)));
 
+    // Same for general recurring transactions linked to this account — the
+    // schedule itself still means something without a source/destination.
+    await (_db.update(_db.recurringTransactions)
+          ..where((r) =>
+              r.profileId.equals(profileId) & r.accountId.equals(id)))
+        .write(const RecurringTransactionsCompanion(accountId: Value(null)));
+
     // Recurring transfers naming this account as either side are removed by
     // the foreign key's cascade — a transfer with only one side left cannot
     // mean anything.
@@ -408,6 +429,11 @@ class HomebaseRepository {
     await (_db.update(_db.budgetEntries)
           ..where((e) => e.profileId.equals(profileId) & e.cardId.equals(id)))
         .write(const BudgetEntriesCompanion(cardId: Value(null)));
+    // Same for general recurring transactions charged to this card.
+    await (_db.update(_db.recurringTransactions)
+          ..where(
+              (r) => r.profileId.equals(profileId) & r.cardId.equals(id)))
+        .write(const RecurringTransactionsCompanion(cardId: Value(null)));
     final rows = await (_db.delete(_db.creditCards)
           ..where((c) => c.profileId.equals(profileId) & c.id.equals(id)))
         .go();
@@ -2053,6 +2079,127 @@ class HomebaseRepository {
     await recordNetWorthSnapshot(profileId: profileId);
   }
 
+  // ---- General recurring transactions ----
+
+  /// Recurring income or expense that isn't a bill or a paycheck — a
+  /// subscription, rental income, a side-gig deposit, anything on its own
+  /// cadence.
+  Stream<List<RecurringTransaction>> watchRecurringTransactions(
+          {required int profileId}) =>
+      (_db.select(_db.recurringTransactions)
+            ..where((r) => r.profileId.equals(profileId))
+            ..orderBy([(r) => OrderingTerm.asc(r.name)]))
+          .watch();
+
+  Future<int> upsertRecurringTransaction(
+      RecurringTransactionsCompanion entry) async {
+    final row = await _db.into(_db.recurringTransactions).insertReturning(
+          entry,
+          onConflict: DoUpdate((_) => entry),
+        );
+    return row.id;
+  }
+
+  /// Deletes the recurring definition, reversing every occurrence's balance
+  /// effect first — the cascade only removes rows, it doesn't know to undo
+  /// what they did. Reverses at the definition's current amount and
+  /// account/card link, the same assumption [_reverseBillPaymentBalance]
+  /// makes: neither is retroactively corrected if edited after the fact.
+  Future<void> deleteRecurringTransaction(
+      {required int profileId, required int id}) async {
+    final recurring = await (_db.select(_db.recurringTransactions)
+          ..where((r) => r.profileId.equals(profileId) & r.id.equals(id)))
+        .getSingleOrNull();
+    if (recurring == null) return;
+    final logs = await (_db.select(_db.recurringTransactionLogs)
+          ..where((l) => l.recurringTransactionId.equals(id)))
+        .get();
+    final isExpense = recurring.type == EntryType.expense;
+    await _db.transaction(() async {
+      for (final _ in logs) {
+        if (recurring.accountId != null) {
+          await _adjustAccountBalance(recurring.accountId!,
+              isExpense ? recurring.amountCents : -recurring.amountCents);
+        }
+        if (recurring.cardId != null) {
+          await _adjustCardBalance(recurring.cardId!,
+              isExpense ? -recurring.amountCents : recurring.amountCents);
+        }
+      }
+      await (_db.delete(_db.recurringTransactions)
+            ..where((r) => r.profileId.equals(profileId) & r.id.equals(id)))
+          .go();
+    });
+    if (logs.isNotEmpty &&
+        (recurring.accountId != null || recurring.cardId != null)) {
+      await recordNetWorthSnapshot(profileId: profileId);
+    }
+  }
+
+  /// Posts any occurrence due through today that hasn't been materialized
+  /// yet — mirrors an income or expense entry into [BudgetEntries] and, if
+  /// the item has an account or card link, moves that balance too, all in
+  /// one go. Idempotent, same as [materializeDueTransfers].
+  Future<void> materializeDueRecurringTransactions(
+      {required int profileId, DateTime? now}) async {
+    final today = () {
+      final n = now ?? DateTime.now();
+      return DateTime(n.year, n.month, n.day);
+    }();
+    final items = await (_db.select(_db.recurringTransactions)
+          ..where(
+              (r) => r.profileId.equals(profileId) & r.active.equals(true)))
+        .get();
+    var touchedBalance = false;
+    for (final item in items) {
+      final already = await (_db.select(_db.recurringTransactionLogs)
+            ..where((l) => l.recurringTransactionId.equals(item.id)))
+          .get();
+      final have = already.map((l) => l.date).toSet();
+      final isExpense = item.type == EntryType.expense;
+      for (final date
+          in _occurrencesFor(item.anchorDate, item.frequency, today)) {
+        if (have.contains(date)) continue;
+        await _db.transaction(() async {
+          final logId = await _db.into(_db.recurringTransactionLogs).insert(
+                RecurringTransactionLogsCompanion.insert(
+                  profileId: profileId,
+                  recurringTransactionId: item.id,
+                  date: date,
+                ),
+              );
+          await _db.into(_db.budgetEntries).insert(
+                BudgetEntriesCompanion.insert(
+                  profileId: profileId,
+                  date: date,
+                  amountCents: item.amountCents,
+                  type: item.type,
+                  category: Value(item.category),
+                  description: Value(item.name),
+                  accountId: Value(item.accountId),
+                  cardId: Value(item.cardId),
+                  sourceRecurringTransactionLogId: Value(logId),
+                ),
+              );
+          if (item.accountId != null) {
+            await _adjustAccountBalance(item.accountId!,
+                isExpense ? -item.amountCents : item.amountCents);
+          }
+          if (item.cardId != null) {
+            await _adjustCardBalance(item.cardId!,
+                isExpense ? item.amountCents : -item.amountCents);
+          }
+        });
+        if (item.accountId != null || item.cardId != null) {
+          touchedBalance = true;
+        }
+      }
+    }
+    if (touchedBalance) {
+      await recordNetWorthSnapshot(profileId: profileId);
+    }
+  }
+
   /// Every balance-moving feature that isn't the "Edit account" dialog
   /// itself — transfers, account-linked entries, bill payments, card
   /// payments paid from an account — goes through here, so the sparkline's
@@ -2085,8 +2232,10 @@ class HomebaseRepository {
   /// A day-by-day projection of total cash (checking, savings and cash
   /// accounts — the money you can actually spend) starting from today's
   /// real balance, walking forward using what is already scheduled:
-  /// paychecks and bills. This is not a prediction of unplanned spending —
-  /// only what Clearly already knows is coming.
+  /// paychecks, bills, general recurring transactions, and any recurring
+  /// transfer that actually crosses into or out of cash. This is not a
+  /// prediction of unplanned spending — only what Clearly already knows is
+  /// coming.
   ///
   /// Bills never touch an account's balance automatically anywhere in
   /// Clearly (balances are always edited by hand or by a logged payment),
@@ -2102,11 +2251,17 @@ class HomebaseRepository {
     final end = DateTime(today.year, today.month, today.day + days);
 
     final accounts = await watchAccounts(profileId: profileId).first;
+    final accountById = {for (final a in accounts) a.id: a};
     final startBalance = accounts
         .where((a) => cashAccountTypes.contains(a.type))
         .fold(0, (s, a) => s + a.balanceCents);
+    bool isCash(int? accountId) {
+      final account = accountById[accountId];
+      return account != null && cashAccountTypes.contains(account.type);
+    }
 
-    // One delta per calendar day: paychecks add, bills subtract.
+    // One delta per calendar day: paychecks and recurring income add,
+    // bills and recurring expenses subtract.
     final deltas = <DateTime, int>{};
 
     final paychecks = await watchPaychecks(profileId: profileId).first;
@@ -2128,6 +2283,38 @@ class HomebaseRepository {
       month = DateTime(month.year, month.month + 1);
     }
 
+    // A recurring transaction only affects the projection if it isn't
+    // pinned to a non-cash account — one aimed at retirement or investment
+    // shouldn't count against money you can actually spend, the same
+    // reasoning that excludes those account types from the starting
+    // balance above.
+    final recurring = await watchRecurringTransactions(profileId: profileId).first;
+    for (final r in recurring) {
+      if (!r.active) continue;
+      if (r.accountId != null && !isCash(r.accountId)) continue;
+      final signed = r.type == EntryType.income ? r.amountCents : -r.amountCents;
+      for (final date in _occurrencesFor(r.anchorDate, r.frequency, end)) {
+        if (date.isBefore(today) || date.isAfter(end)) continue;
+        deltas[date] = (deltas[date] ?? 0) + signed;
+      }
+    }
+
+    // A transfer between two cash accounts nets to zero for the combined
+    // total, so only one that crosses the cash/non-cash boundary (e.g.
+    // checking -> a brokerage account) actually moves this number.
+    final transfers = await watchRecurringTransfers(profileId: profileId).first;
+    for (final t in transfers) {
+      if (!t.active) continue;
+      final fromCash = isCash(t.fromAccountId);
+      final toCash = isCash(t.toAccountId);
+      if (fromCash == toCash) continue;
+      final signed = fromCash ? -t.amountCents : t.amountCents;
+      for (final date in _occurrencesFor(t.anchorDate, t.frequency, end)) {
+        if (date.isBefore(today) || date.isAfter(end)) continue;
+        deltas[date] = (deltas[date] ?? 0) + signed;
+      }
+    }
+
     final points = <({DateTime date, int balanceCents})>[];
     var running = startBalance;
     for (var i = 0; i <= days; i++) {
@@ -2136,6 +2323,84 @@ class HomebaseRepository {
       points.add((date: date, balanceCents: running));
     }
     return points;
+  }
+
+  /// Every bill due, paycheck landing, active transfer, and active general
+  /// recurring transaction between today and [days] out, merged into one
+  /// chronological list. The same sources [projectCashFlow] totals up, just
+  /// shown as individual occurrences instead of a running balance.
+  Future<List<UpcomingItem>> upcomingItems({
+    required int profileId,
+    int days = 30,
+    DateTime? now,
+  }) async {
+    final n = now ?? DateTime.now();
+    final today = DateTime(n.year, n.month, n.day);
+    final end = DateTime(today.year, today.month, today.day + days);
+    bool inWindow(DateTime d) => !d.isBefore(today) && !d.isAfter(end);
+
+    final items = <UpcomingItem>[];
+
+    final bills = await watchBills(profileId: profileId).first;
+    var month = DateTime(today.year, today.month);
+    while (!month.isAfter(end)) {
+      for (final bill in bills) {
+        if (!billFallsIn(bill, month)) continue;
+        final date = dayInMonth(month.year, month.month, bill.dueDay);
+        if (!inWindow(date)) continue;
+        items.add((
+          date: date,
+          label: bill.name,
+          amountCents: -bill.amountCents,
+          kind: UpcomingKind.bill,
+        ));
+      }
+      month = DateTime(month.year, month.month + 1);
+    }
+
+    final paychecks = await watchPaychecks(profileId: profileId).first;
+    for (final p in paychecks) {
+      final date = DateTime(p.date.year, p.date.month, p.date.day);
+      if (!inWindow(date)) continue;
+      items.add((
+        date: date,
+        label: p.name,
+        amountCents: p.amountCents + p.bonusCents,
+        kind: UpcomingKind.paycheck,
+      ));
+    }
+
+    final transfers = await watchRecurringTransfers(profileId: profileId).first;
+    for (final t in transfers) {
+      if (!t.active) continue;
+      for (final date in _occurrencesFor(t.anchorDate, t.frequency, end)) {
+        if (!inWindow(date)) continue;
+        items.add((
+          date: date,
+          label: t.name,
+          amountCents: -t.amountCents,
+          kind: UpcomingKind.transfer,
+        ));
+      }
+    }
+
+    final recurring = await watchRecurringTransactions(profileId: profileId).first;
+    for (final r in recurring) {
+      if (!r.active) continue;
+      final signed = r.type == EntryType.income ? r.amountCents : -r.amountCents;
+      for (final date in _occurrencesFor(r.anchorDate, r.frequency, end)) {
+        if (!inWindow(date)) continue;
+        items.add((
+          date: date,
+          label: r.name,
+          amountCents: signed,
+          kind: UpcomingKind.recurring,
+        ));
+      }
+    }
+
+    items.sort((a, b) => a.date.compareTo(b.date));
+    return items;
   }
 
   // ---- CSV import/export ----

@@ -285,6 +285,12 @@ class BudgetEntries extends Table {
   IntColumn get importBatchId => integer()
       .nullable()
       .references(ImportBatches, #id, onDelete: KeyAction.cascade)();
+
+  /// Set when this entry was generated automatically because a general
+  /// recurring transaction came due — see [RecurringTransactionLogs].
+  IntColumn get sourceRecurringTransactionLogId => integer()
+      .nullable()
+      .references(RecurringTransactionLogs, #id, onDelete: KeyAction.cascade)();
 }
 
 /// One slice of a split transaction — e.g. a single $150 store run entered
@@ -445,6 +451,55 @@ class TransferLogs extends Table {
       ];
 }
 
+/// A recurring income or expense that isn't a bill or a paycheck — a
+/// subscription, a side-gig deposit, rental income, anything on a
+/// repeating cadence that doesn't fit either of those. Uses the same
+/// anchor-date + [PayFrequency] cadence as [PaycheckSchedules] and
+/// [RecurringTransfers] rather than Bills' month-membership model, since
+/// this is closer in shape to "an amount, on a cadence, from a date" than
+/// to "does this fall in this calendar month."
+class RecurringTransactions extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get profileId => integer().references(Profiles, #id)();
+  TextColumn get name => text().withLength(min: 1, max: 64)();
+  TextColumn get type => textEnum<EntryType>()();
+  IntColumn get amountCents => integer()();
+  TextColumn get category => text().withDefault(const Constant('Other'))();
+  TextColumn get frequency => textEnum<PayFrequency>()();
+  DateTimeColumn get anchorDate => dateTime()();
+
+  /// Which account this moves money through, when known. Not cascaded on
+  /// delete — deleting the account just clears the link, the same way
+  /// deleting an account clears it from a bill's payment source, since the
+  /// recurring item itself still means something without it.
+  IntColumn get accountId => integer().nullable().references(Accounts, #id)();
+
+  /// Which card this charges or credits, when known. Mutually exclusive
+  /// with [accountId] in practice, same as [BudgetEntries].
+  IntColumn get cardId => integer().nullable().references(CreditCards, #id)();
+
+  /// Pausing keeps the schedule and its history without generating any
+  /// further occurrences — the same shape as [RecurringTransfers.active].
+  BoolColumn get active => boolean().withDefault(const Constant(true))();
+}
+
+/// One row per occurrence actually materialized, so a schedule never
+/// double-posts an occurrence it already ran — the same pattern as
+/// [BillPayments] and [TransferLogs].
+class RecurringTransactionLogs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get profileId => integer().references(Profiles, #id)();
+  IntColumn get recurringTransactionId => integer().references(
+      RecurringTransactions, #id,
+      onDelete: KeyAction.cascade)();
+  DateTimeColumn get date => dateTime()();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {recurringTransactionId, date},
+      ];
+}
+
 @DriftDatabase(tables: [
   Profiles,
   Accounts,
@@ -469,13 +524,15 @@ class TransferLogs extends Table {
   TransferLogs,
   TransactionSplits,
   ImportBatches,
+  RecurringTransactions,
+  RecurringTransactionLogs,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 20;
+  int get schemaVersion => 21;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -641,6 +698,12 @@ class AppDatabase extends _$AppDatabase {
               await m.addColumn(accounts, accounts.reconciledBalanceCents);
               await m.addColumn(accounts, accounts.reconciledAt);
             }
+          }
+          if (from < 21) {
+            await m.createTable(recurringTransactions);
+            await m.createTable(recurringTransactionLogs);
+            await m.addColumn(
+                budgetEntries, budgetEntries.sourceRecurringTransactionLogId);
           }
         },
         beforeOpen: (details) async {

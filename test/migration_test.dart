@@ -723,5 +723,22 @@ void main() {
     // v20 adds reconciliation columns to accounts, unset until reconciled.
     expect(account.reconciledBalanceCents, isNull);
     expect(account.reconciledAt, isNull);
+
+    // v21 adds the general recurring transaction tables and can use them
+    // right away.
+    final recurringId = await db.into(db.recurringTransactions).insert(
+          RecurringTransactionsCompanion.insert(
+            profileId: 1,
+            name: 'Netflix',
+            type: EntryType.expense,
+            amountCents: 1599,
+            frequency: PayFrequency.monthly,
+            anchorDate: DateTime(2026, 9, 1),
+          ),
+        );
+    expect(
+        (await db.select(db.recurringTransactions).get()).single.name,
+        'Netflix');
+    expect(recurringId, isNonNegative);
   });
 }

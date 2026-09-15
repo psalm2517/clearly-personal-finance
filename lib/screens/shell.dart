@@ -16,6 +16,7 @@ import 'paychecks.dart';
 import 'profiles.dart';
 import 'settings.dart';
 import 'transactions.dart';
+import 'upcoming_hub.dart';
 
 /// Desktop shell: NavigationRail sidebar + content. Only admins see the
 /// profile switcher; non-admins have no indication other profiles exist.
@@ -47,6 +48,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       await repo.materializeAutopayPayments(
           profileId: profileId, month: now);
       await repo.materializeDueTransfers(profileId: profileId, now: now);
+      await repo.materializeDueRecurringTransactions(
+          profileId: profileId, now: now);
       // A point for today even on a day with no edits.
       await repo.recordNetWorthSnapshot(profileId: profileId);
       await repo.recordAccountSnapshotsForToday(profileId: profileId);
@@ -74,6 +77,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       'Budget',
       'Transactions',
       'Paychecks',
+      'Upcoming',
       'Goals',
       'Settings',
       // Admin-only, appended last so indices stay stable for everyone else.
@@ -87,6 +91,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       const BudgetScreen(),
       const TransactionsScreen(),
       const PaychecksScreen(),
+      const UpcomingHubScreen(),
       const GoalsScreen(),
       const SettingsScreen(),
       if (loggedIn.isAdmin) const ProfilesScreen(),
@@ -148,6 +153,10 @@ class _AppShellState extends ConsumerState<AppShell> {
                   icon: Icon(Icons.payments_outlined),
                   selectedIcon: Icon(Icons.payments),
                   label: Text('Paychecks')),
+              const NavigationRailDestination(
+                  icon: Icon(Icons.upcoming_outlined),
+                  selectedIcon: Icon(Icons.upcoming),
+                  label: Text('Upcoming')),
               const NavigationRailDestination(
                   icon: Icon(Icons.flag_outlined),
                   selectedIcon: Icon(Icons.flag),
