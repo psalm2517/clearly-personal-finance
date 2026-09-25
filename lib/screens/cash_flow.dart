@@ -5,7 +5,6 @@ import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import '../widgets/cashflow_chart.dart';
-import '../util/money.dart';
 import '../widgets/common.dart';
 import '../widgets/projected_cash_section.dart';
 import '../widgets/sankey_chart.dart';
@@ -53,8 +52,8 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                     'your other accounts, and loan payments.',
                 'Only money that really went somewhere is drawn on the '
                     'right. If the middle bar is taller than what flows out '
-                    'of it, the note underneath says how much has not been '
-                    'spent or moved yet. It is not counted as savings.',
+                    'of it, its shaded end is income that has not been spent '
+                    'or moved yet. It is not counted as savings.',
                 'Spending is counted when you make it, including on a card. '
                     'A card payment is not drawn separately, because it '
                     'settles purchases that are already counted.',
@@ -101,8 +100,6 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                     for (final e in movements.entries)
                       e.key: (spent[e.key] ?? 0) + e.value,
                   };
-                  final unspent = income.values.fold<int>(0, (s, v) => s + v) -
-                      outflows.values.fold<int>(0, (s, v) => s + v);
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,18 +111,6 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                           expenseByCategory: outflows,
                         ),
                       ),
-                      if (unspent > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            '${fmtCents(unspent)} of this month\'s income has '
-                            'not been spent or moved yet.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                        ),
                     ],
                   );
                 },

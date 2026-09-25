@@ -229,6 +229,50 @@ class _SankeyPainter extends CustomPainter {
       canvas.drawPath(path, Paint()..color = link.color.withValues(alpha: 0.32));
     }
 
+    // If less flowed out than came in, the bottom of the middle bar has
+    // nothing leaving it. Shade that part differently and say what it is, in
+    // place — it is income not spent or moved yet, not a destination, so it
+    // gets no ribbon and no bar of its own on the right.
+    final midIndex = nodes.indexWhere((n) => n.column == 1);
+    if (midIndex >= 0) {
+      final midRect = rects[midIndex];
+      final tailTop = midRect.top + outCursor[midIndex];
+      final tailHeight = midRect.bottom - tailTop;
+      if (tailHeight > 2) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromLTRB(midRect.left, tailTop, midRect.right, midRect.bottom),
+              const Radius.circular(2)),
+          Paint()..color = mutedColor.withValues(alpha: 0.75),
+        );
+        final tailCents = midTotal - rightTotal;
+        final pct = baseTotal == 0 ? 0.0 : tailCents / baseTotal * 100;
+        final tailLabel = TextPainter(
+          text: TextSpan(children: [
+            TextSpan(
+              text: 'Not spent or moved yet',
+              style: TextStyle(
+                  color: mutedColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600),
+            ),
+            TextSpan(
+              text: '\n${fmtCents(tailCents)} (${pct.toStringAsFixed(0)}%)',
+              style: TextStyle(color: mutedColor, fontSize: 11),
+            ),
+          ]),
+          textDirection: TextDirection.ltr,
+          maxLines: 2,
+        )..layout(maxWidth: size.width / 3);
+        final y = (tailTop + tailHeight / 2 - tailLabel.height / 2)
+            .clamp(0.0, size.height - tailLabel.height);
+        // Only when it fits beside the tail without sitting on the ribbons.
+        if (tailHeight >= tailLabel.height * 0.8) {
+          tailLabel.paint(canvas, Offset(midRect.right + 8, y));
+        }
+      }
+    }
+
     // Every node with any height gets a label. A bar too short for the
     // usual two-line label gets a compact one-line label instead of none —
     // otherwise the smallest amounts (often exactly the ones worth
