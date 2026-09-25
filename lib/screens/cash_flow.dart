@@ -5,6 +5,7 @@ import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import '../widgets/cashflow_chart.dart';
+import '../util/money.dart';
 import '../widgets/common.dart';
 import '../widgets/projected_cash_section.dart';
 import '../widgets/sankey_chart.dart';
@@ -47,20 +48,16 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
             info: const InfoButton(
               title: 'Where it went',
               body: [
-                'Money that actually moved through your accounts in the '
-                    'month. What came in is on the left, and where it went is '
-                    'on the right: spending categories, transfers to your '
-                    'other accounts, and card or loan payments made from an '
-                    'account.',
+                'What came in this month is on the left, and where it went is '
+                    'on the right: your spending by category, transfers to '
+                    'your other accounts, and loan payments.',
                 'Only money that really went somewhere is drawn on the '
                     'right. If the middle bar is taller than what flows out '
-                    'of it, the difference simply has not been spent or '
-                    'moved, or has not been logged yet. It is not counted as '
-                    'savings.',
-                'Card purchases are counted when you pay the card, not when '
-                    'you charge it, so the same money is never counted '
-                    'twice. Your card spending by category is still on the '
-                    'Budget screen.',
+                    'of it, the note underneath says how much has not been '
+                    'spent or moved yet. It is not counted as savings.',
+                'Spending is counted when you make it, including on a card. '
+                    'A card payment is not drawn separately, because it '
+                    'settles purchases that are already counted.',
                 'If more went out than came in, the gap shows on the left as '
                     'a Shortfall: money that came from savings from earlier '
                     'months or from borrowing, not from this month\'s '
@@ -71,14 +68,14 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              height: 320,
-              child: StreamBuilder<List<dynamic>>(
+            child: StreamBuilder<List<dynamic>>(
                 stream: combineLatest<dynamic>([
                   repo.watchBudgetForMonth(profileId: profileId, month: _month),
                   repo.watchSplitsByEntry(profileId: profileId),
                   repo.watchRealMoneyMovementsForMonth(
-                      profileId: profileId, month: _month),
+                      profileId: profileId,
+                      month: _month,
+                      includeCardPayments: false),
                 ]),
                 builder: (context, snap) {
                   if (!snap.hasData) return const SizedBox.shrink();
@@ -87,31 +84,52 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                       snap.data![1] as Map<int, List<TransactionSplit>>;
                   final movements = snap.data![2] as Map<String, int>;
 
-                  // Only entries that actually moved cash: a card purchase
-                  // shows up when the card is paid, not when charged.
-                  final cash = entries
-                      .where(HomebaseRepository.entryMovesCash)
-                      .toList();
+                  // What you spent, by category, counted when you spent it
+                  // (a card purchase included), plus transfers to your other
+                  // accounts and loan payments.
                   final spent = <String, int>{};
                   final income = <String, int>{};
                   for (final r
                       in HomebaseRepository.expandForCategoryTotals(
-                          cash, splits)) {
+                          entries, splits)) {
                     final map =
                         r.type == EntryType.expense ? spent : income;
                     map[r.category] = (map[r.category] ?? 0) + r.amountCents;
                   }
-                  return IncomeSankeyChart(
-                    incomeByCategory: income,
-                    expenseByCategory: {
-                      ...spent,
-                      for (final e in movements.entries)
-                        e.key: (spent[e.key] ?? 0) + e.value,
-                    },
+                  final outflows = {
+                    ...spent,
+                    for (final e in movements.entries)
+                      e.key: (spent[e.key] ?? 0) + e.value,
+                  };
+                  final unspent = income.values.fold<int>(0, (s, v) => s + v) -
+                      outflows.values.fold<int>(0, (s, v) => s + v);
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: 320,
+                        child: IncomeSankeyChart(
+                          incomeByCategory: income,
+                          expenseByCategory: outflows,
+                        ),
+                      ),
+                      if (unspent > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            '${fmtCents(unspent)} of this month\'s income has '
+                            'not been spent or moved yet.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                    ],
                   );
                 },
               ),
-            ),
           ),
         ),
         kSectionGap,

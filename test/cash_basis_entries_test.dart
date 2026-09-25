@@ -31,39 +31,6 @@ void main() {
       .watchBudgetForMonth(profileId: profileId, month: DateTime(2026, 8))
       .first;
 
-  test('an entry charged to a card does not move cash', () async {
-    await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
-      profileId: profileId,
-      date: DateTime(2026, 8, 10),
-      amountCents: 4500,
-      type: EntryType.expense,
-      cardId: Value(cardId),
-    ));
-
-    expect(HomebaseRepository.entryMovesCash((await entries()).single),
-        isFalse);
-  });
-
-  test('an account-linked or unlinked entry moves cash', () async {
-    await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
-      profileId: profileId,
-      date: DateTime(2026, 8, 10),
-      amountCents: 4500,
-      type: EntryType.expense,
-      accountId: Value(checkingId),
-    ));
-    await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
-      profileId: profileId,
-      date: DateTime(2026, 8, 11),
-      amountCents: 1000,
-      type: EntryType.expense,
-    ));
-
-    for (final e in await entries()) {
-      expect(HomebaseRepository.entryMovesCash(e), isTrue);
-    }
-  });
-
   test('a bill paid with a card mirrors into an entry carrying that card, one '
       'paid from an account carries the account', () async {
     final cardBill = await repo.upsertBill(BillsCompanion.insert(
@@ -94,14 +61,49 @@ void main() {
 
     expect(streaming.cardId, cardId);
     expect(streaming.accountId, isNull);
-    expect(HomebaseRepository.entryMovesCash(streaming), isFalse);
     expect(rent.accountId, checkingId);
     expect(rent.cardId, isNull);
-    expect(HomebaseRepository.entryMovesCash(rent), isTrue);
 
     final history =
         await repo.watchCardHistory(profileId: profileId, cardId: cardId).first;
     expect(history.map((a) => a.label), contains('Streaming'),
         reason: 'the bill now shows in the card\'s own history');
+  });
+
+  test('card payments can be left out of the month\'s money movements',
+      () async {
+    await repo.postManualTransfer(
+      profileId: profileId,
+      fromAccountId: checkingId,
+      toAccountId: (await repo.upsertAccount(AccountsCompanion.insert(
+          profileId: profileId, name: 'Savings', type: AccountType.savings))),
+      amountCents: 15000,
+      date: DateTime(2026, 8, 10),
+      name: 'To savings',
+    );
+    await repo.addPayment(
+      profileId: profileId,
+      accountType: PaymentAccountType.card,
+      accountId: cardId,
+      amountCents: 20000,
+      date: DateTime(2026, 8, 12),
+      fromAccountId: checkingId,
+    );
+
+    final all = await repo
+        .watchRealMoneyMovementsForMonth(
+            profileId: profileId, month: DateTime(2026, 8))
+        .first;
+    final withoutCards = await repo
+        .watchRealMoneyMovementsForMonth(
+            profileId: profileId,
+            month: DateTime(2026, 8),
+            includeCardPayments: false)
+        .first;
+
+    expect(all.keys, containsAll(['Transfer to Savings', 'Card payment — Visa']));
+    expect(withoutCards.keys, ['Transfer to Savings'],
+        reason: 'the transfer stays; the card payment would double count '
+            'purchases already counted as spending');
   });
 }

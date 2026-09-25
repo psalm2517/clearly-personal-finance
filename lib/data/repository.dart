@@ -1455,9 +1455,14 @@ class HomebaseRepository {
   /// own real destinations instead of lumping them into an unexplained
   /// leftover — every dollar that actually left an account this month has
   /// somewhere to point to.
+  ///
+  /// Card payments can be left out ([includeCardPayments] false): when the
+  /// purchases themselves are already counted as spending, the payment that
+  /// settles them would count the same money twice.
   Stream<Map<String, int>> watchRealMoneyMovementsForMonth({
     required int profileId,
     required DateTime month,
+    bool includeCardPayments = true,
   }) {
     final start = DateTime(month.year, month.month);
     final end = DateTime(month.year, month.month + 1);
@@ -1497,6 +1502,10 @@ class HomebaseRepository {
         result[label] = (result[label] ?? 0) + log.amountCents;
       }
       for (final payment in paymentRows) {
+        if (!includeCardPayments &&
+            payment.accountType == PaymentAccountType.card) {
+          continue;
+        }
         final label = switch (payment.accountType) {
           PaymentAccountType.card => 'Card payment — '
               '${cardRows.where((c) => c.id == payment.accountId).firstOrNull?.name ?? 'deleted card'}',
@@ -2924,11 +2933,6 @@ class HomebaseRepository {
       e.sourcePaycheckId != null ||
       e.sourceBillPaymentId != null ||
       e.sourceRecurringTransactionLogId != null;
-
-  /// Whether [entry] actually moved cash. Charging a card doesn't — the
-  /// cash leaves later, when the card is paid — so counting both the charge
-  /// and the payment would count the same money twice.
-  static bool entryMovesCash(BudgetEntry entry) => entry.cardId == null;
 
   /// Whether any entry from this batch has since been split or tagged —
   /// undoing the import would silently take that manual work with it, so
