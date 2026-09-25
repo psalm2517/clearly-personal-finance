@@ -549,98 +549,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ),
         kSectionGap,
-        StreamBuilder<List<({Bill bill, bool paid})>>(
-            stream: repo.watchBillsForMonth(
-              profileId: profileId,
-              month: DateTime.now(),
-            ),
-            builder: (context, snap) {
-              final rows = snap.data ?? [];
-              final today = DateTime.now();
-              final lastDay = DateTime(today.year, today.month + 1, 0).day;
-              final windowEnd = today.add(const Duration(days: 7));
-              final upcoming = rows.where((r) {
-                if (r.paid) return false;
-                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
-                final due = DateTime(today.year, today.month, day);
-                return !due.isBefore(
-                      DateTime(today.year, today.month, today.day),
-                    ) &&
-                    !due.isAfter(windowEnd);
-              }).toList();
-              final overdue = rows.where((r) {
-                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
-                final due = DateTime(today.year, today.month, day);
-                return !r.paid &&
-                    !r.bill.autopay &&
-                    due.isBefore(DateTime(today.year, today.month, today.day));
-              }).toList();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(
-                    'Bills due this week',
-                    icon: Icons.event_outlined,
-                    info: InfoButton(
-                      title: 'Bills due this week',
-                      body: [
-                        'Any bill whose due day falls in the next seven days, '
-                            'plus anything already overdue and unpaid this '
-                            'month.',
-                        'Paid status is tracked per month, so this clears '
-                            'itself when a new month begins — there is '
-                            'nothing to reset.',
-                        'A bill due on a day later than the current month has '
-                            '(the 31st in February) is treated as due on the '
-                            'last day of that month.',
-                      ],
-                    ),
-                  ),
-                  if (upcoming.isEmpty && overdue.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: EmptyState(
-                          icon: Icons.event_available_outlined,
-                          title: 'Nothing due this week',
-                          message: 'Bills due in the next 7 days appear here.',
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Column(
-                        children: [
-                          for (final r in [...overdue, ...upcoming])
-                            ListTile(
-                              leading: Icon(
-                                overdue.contains(r)
-                                    ? Icons.warning_amber_outlined
-                                    : Icons.schedule,
-                                color: overdue.contains(r)
-                                    ? scheme.error
-                                    : scheme.primary,
-                              ),
-                              title: Text(r.bill.name),
-                              subtitle: Text(
-                                'Due the ${ordinalDay(r.bill.dueDay)} • '
-                                '${r.bill.category}'
-                                '${overdue.contains(r) ? ' • overdue' : ''}',
-                              ),
-                              trailing: Text(
-                                fmtCents(r.bill.amountCents),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+        _NextTwoWeeksCard(profileId: profileId),
       ],
     );
   }
@@ -1376,6 +1285,148 @@ class _CashOutlookCard extends ConsumerWidget {
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+
+/// Everything coming in the next two weeks — bills, paychecks, transfers and
+/// anything else that repeats — in one list, with any unpaid bill that is
+/// already past due pinned on top. The full picture is on the Recurring page.
+class _NextTwoWeeksCard extends ConsumerWidget {
+  const _NextTwoWeeksCard({required this.profileId});
+
+  final int profileId;
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.watch(repositoryProvider);
+    final scheme = Theme.of(context).colorScheme;
+    final today = DateTime.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+
+    return StreamBuilder<List<({Bill bill, bool paid})>>(
+      stream: repo.watchBillsForMonth(profileId: profileId, month: today),
+      builder: (context, billSnap) {
+        final lastDay = DateTime(today.year, today.month + 1, 0).day;
+        final overdue = [
+          for (final r in billSnap.data ?? const <({Bill bill, bool paid})>[])
+            if (!r.paid &&
+                !r.bill.autopay &&
+                DateTime(
+                        today.year,
+                        today.month,
+                        r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay)
+                    .isBefore(startOfToday))
+              r,
+        ];
+        return FutureBuilder<List<UpcomingItem>>(
+          future: repo.upcomingItems(profileId: profileId, days: 14),
+          builder: (context, snap) {
+            final items = (snap.data ?? []).take(8).toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader(
+                  'Next 14 days',
+                  icon: Icons.event_outlined,
+                  info: const InfoButton(
+                    title: 'Next 14 days',
+                    body: [
+                      'Every bill due, paycheck landing, scheduled transfer '
+                          'and recurring item in the next two weeks, soonest '
+                          'first. Anything already paid or received is not '
+                          'listed.',
+                      'An unpaid bill that is already past due is pinned at '
+                          'the top in red. Autopay bills are left out of '
+                          'that, since they pay themselves.',
+                    ],
+                  ),
+                ),
+                if (overdue.isEmpty && items.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: EmptyState(
+                        icon: Icons.event_available_outlined,
+                        title: 'Nothing coming up',
+                        message: 'Bills, paychecks and transfers in the next '
+                            'two weeks appear here.',
+                      ),
+                    ),
+                  )
+                else
+                  Card(
+                    child: Column(
+                      children: [
+                        for (final r in overdue)
+                          ListTile(
+                            leading: Icon(Icons.warning_amber_outlined,
+                                color: scheme.error),
+                            title: Text(r.bill.name),
+                            subtitle: Text(
+                                'Was due the ${ordinalDay(r.bill.dueDay)} • '
+                                'overdue'),
+                            trailing: Text(fmtCents(r.bill.amountCents),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: scheme.error)),
+                          ),
+                        for (final item in items)
+                          ListTile(
+                            leading: Icon(
+                                switch (item.kind) {
+                                  UpcomingKind.bill =>
+                                    Icons.receipt_long_outlined,
+                                  UpcomingKind.paycheck =>
+                                    Icons.payments_outlined,
+                                  UpcomingKind.transfer =>
+                                    Icons.sync_alt_outlined,
+                                  UpcomingKind.recurring => Icons.autorenew,
+                                },
+                                color: item.amountCents >= 0
+                                    ? scheme.primary
+                                    : scheme.onSurfaceVariant),
+                            title: Text(item.label),
+                            subtitle: Text(
+                                '${_months[item.date.month - 1]} '
+                                '${ordinalDay(item.date.day)}'),
+                            trailing: Text(
+                              '${item.amountCents >= 0 ? '+' : '-'}'
+                              '${fmtCents(item.amountCents.abs())}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: item.amountCents >= 0
+                                    ? scheme.primary
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: TextButton(
+                              onPressed: () => ref
+                                  .read(navProvider.notifier)
+                                  .state = Dest.recurring,
+                              child: const Text('See everything recurring'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
         );
       },
     );

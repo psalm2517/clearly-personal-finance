@@ -5,7 +5,6 @@ import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
-import '../widgets/add_transaction.dart';
 import '../widgets/common.dart';
 
 const _monthNames = [
@@ -25,7 +24,6 @@ class BudgetScreen extends ConsumerStatefulWidget {
 
 class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
-  String? _tagFilter;
 
   bool get _isCurrentMonth {
     final now = DateTime.now();
@@ -45,12 +43,10 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           repo.watchBudgetTargets(profileId: profileId),
           repo.watchExpectedIncomeForMonth(
               profileId: profileId, month: _month),
-          repo.watchBillsDueThisMonthCents(
+          repo.watchBillsDueByCategoryForMonth(
               profileId: profileId, month: _month),
-          repo.watchCardFeesDueThisMonthCents(profileId: profileId),
           repo.watchReserveForIrregularBillsCents(profileId: profileId),
           repo.watchReserveForCardFeesCents(profileId: profileId),
-          repo.watchEntryTagNames(profileId: profileId),
           repo.watchSplitsByEntry(profileId: profileId),
           repo.watchBillsPaidThisMonthCents(
               profileId: profileId, month: _month),
@@ -62,13 +58,12 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           final entries = snap.data![0] as List<BudgetEntry>;
           final targets = snap.data![1] as List<BudgetTarget>;
           final expectedIncome = snap.data![2] as int;
-          final billsDue = (snap.data![3] as int) + (snap.data![4] as int);
-          final setAside = (snap.data![5] as int) + (snap.data![6] as int);
-          final tagsByEntry = snap.data![7] as Map<int, List<String>>;
+          final billsDue = snap.data![3] as Map<String, int>;
+          final setAside = (snap.data![4] as int) + (snap.data![5] as int);
           final splitsByEntry =
-              snap.data![8] as Map<int, List<TransactionSplit>>;
-          final billsPaid = snap.data![9] as int;
-          final transferTotals = snap.data![10] as Map<String, int>;
+              snap.data![6] as Map<int, List<TransactionSplit>>;
+          final billsPaid = snap.data![7] as int;
+          final transferTotals = snap.data![8] as Map<String, int>;
           return _body(
               context,
               entries,
@@ -77,7 +72,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               billsDue,
               billsPaid,
               transferTotals,
-              setAside, tagsByEntry, splitsByEntry, scheme);
+              setAside, splitsByEntry, scheme);
         },
       ),
     );
@@ -88,11 +83,10 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       List<BudgetEntry> entries,
       List<BudgetTarget> targets,
       int expectedIncomeCents,
-      int billsDueCents,
+      Map<String, int> billsDueByCategory,
       int billsPaidCents,
       Map<String, int> transferTotals,
       int setAsideCents,
-      Map<int, List<String>> tagsByEntry,
       Map<int, List<TransactionSplit>> splitsByEntry,
       ColorScheme scheme) {
     final moneyIn = entries
@@ -102,11 +96,20 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
         .where((e) => e.type == EntryType.expense)
         .fold(0, (s, e) => s + e.amountCents);
 
-    // Targets are money you have already committed to a category, so they
-    // count as allocated even before you spend it.
-    final targetsTotal =
-        targets.fold(0, (sum, t) => sum + t.monthlyTargetCents);
-    final unallocated = expectedIncomeCents - billsDueCents - targetsTotal;
+    // Each category is planned once: at its target, or at its bills where
+    // there is no target. Bill payments count toward their category's
+    // spending, so adding bills on top of a target for the same category
+    // would count that money twice.
+    final plan = HomebaseRepository.planCommitments(
+      targetByCategory: {
+        for (final t in targets) t.category: t.monthlyTargetCents
+      },
+      billsDueByCategory: billsDueByCategory,
+    );
+    final targetsTotal = plan.targetsCents;
+    final billsBeyondTargets = plan.billsBeyondTargetsCents;
+    final unallocated =
+        expectedIncomeCents - targetsTotal - billsBeyondTargets;
 
     // A split entry counts under each of its own categories here, not once
     // under its parent's fallback category.
@@ -129,14 +132,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       ...targets.map((t) => t.category)
     }.toList()
       ..sort((a, b) => usedIn(b).compareTo(usedIn(a)));
-
-    final allTags = tagsByEntry.values.expand((t) => t).toSet().toList()
-      ..sort();
-    final visibleEntries = _tagFilter == null
-        ? entries
-        : entries
-            .where((e) => (tagsByEntry[e.id] ?? []).contains(_tagFilter))
-            .toList();
 
     return Column(
       children: [
@@ -186,20 +181,20 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                   icon: Icons.savings_outlined,
                   color:
                       unallocated >= 0 ? scheme.secondary : scheme.error,
-                  note: targetsTotal > 0
-                      ? (unallocated >= 0
-                          ? 'after bills and targets'
-                          : 'over-allocated')
-                      : 'income minus this month\'s bills',
+                  note: unallocated >= 0
+                      ? 'after your plan for the month'
+                      : 'over-allocated',
                   info: const InfoButton(
                     title: 'Free to spend',
                     body: [
-                      'This month\'s paycheck total minus everything already '
-                          'spoken for: the bills that actually charge this '
-                          'month, and any category targets you have set.',
+                      'This month\'s income minus everything already spoken '
+                          'for: your category targets, plus any bills that '
+                          'are not covered by one.',
                       'A target is a commitment, so it counts as allocated '
                           'even before you spend it — setting a \$400 '
-                          'grocery target lowers this by \$400 immediately.',
+                          'grocery target lowers this by \$400 immediately. '
+                          'Bills in that same category are part of it, not '
+                          'added on top.',
                       'It is steady from the 1st, because it counts paychecks '
                           'you are due as well as ones already received.',
                       'If it goes red you have allocated more than you earn '
@@ -216,9 +211,13 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                     title: 'Plan for this month',
                     body: [
                       'The arithmetic behind "free to spend": this month\'s '
-                          'paycheck total, minus the bills that actually '
-                          'charge this month, minus any category targets you '
-                          'have committed to.',
+                          'income, minus your category targets, minus any '
+                          'bills that are not covered by a target.',
+                      'Every category is counted once. A category is planned '
+                          'at its target; if you have not set one, at the '
+                          'bills that charge in it this month. A bill that '
+                          'has a target on its category is inside that '
+                          'target, not on top of it.',
                       '"Set aside" is a recommendation, not a bill. Annual '
                           'and quarterly costs are divided across their term '
                           '— a \$325 card fee is \$27.08 a month — so the '
@@ -237,11 +236,12 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                     children: [
                       _planRow(context, 'Income this month',
                           fmtCents(expectedIncomeCents)),
-                      _planRow(context, 'Bills due this month',
-                          '-${fmtCents(billsDueCents)}'),
                       if (targetsTotal > 0)
                         _planRow(context, 'Category targets you have set',
                             '-${fmtCents(targetsTotal)}'),
+                      if (billsBeyondTargets > 0)
+                        _planRow(context, 'Bills not covered by a target',
+                            '-${fmtCents(billsBeyondTargets)}'),
                       const Divider(),
                       _planRow(context, 'Left to budget',
                           fmtCents(unallocated),
@@ -314,48 +314,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                         _categoryTile(context, cat, usedIn(cat),
                             _targetFor(targets, cat), scheme,
                             transferredCents: transferTotals[cat] ?? 0),
-                    ],
-                  ),
-                ),
-              kSectionGap,
-              const SectionHeader('Everything this month',
-                  icon: Icons.list_alt_outlined),
-              if (allTags.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final tag in allTags)
-                        ChoiceChip(
-                          label: Text(tag),
-                          selected: _tagFilter == tag,
-                          onSelected: (selected) => setState(
-                              () => _tagFilter = selected ? tag : null),
-                        ),
-                    ],
-                  ),
-                ),
-              if (visibleEntries.isEmpty)
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: EmptyState(
-                      icon: Icons.list_alt_outlined,
-                      title: 'Nothing yet this month',
-                      message:
-                          'Paychecks and paid bills land here on their own. '
-                          'Use Add entry for anything else.',
-                    ),
-                  ),
-                )
-              else
-                Card(
-                  child: Column(
-                    children: [
-                      for (final e in visibleEntries)
-                        _entryTile(context, e, tagsByEntry[e.id] ?? [],
-                            splitsByEntry[e.id] ?? [], scheme),
                     ],
                   ),
                 ),
@@ -499,89 +457,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Close')),
-        ],
-      ),
-    );
-  }
-
-  Widget _entryTile(BuildContext context, BudgetEntry e, List<String> tags,
-      List<TransactionSplit> splits, ColorScheme scheme) {
-    final automatic = HomebaseRepository.isAutomaticEntry(e);
-    return ListTile(
-      leading: Icon(
-          e.sourcePaycheckId != null
-              ? Icons.payments_outlined
-              : e.sourceBillPaymentId != null
-                  ? Icons.receipt_long_outlined
-                  : e.type == EntryType.income
-                      ? Icons.arrow_downward
-                      : Icons.arrow_upward,
-          color: e.type == EntryType.income ? scheme.primary : scheme.error),
-      title: Text(e.description ?? e.category),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('${splits.isEmpty ? e.category : 'Split'}'
-              '${e.payee != null ? ' • ${e.payee}' : ''} • '
-              '${_monthNames[e.date.month - 1].substring(0, 3)} ${e.date.day}'
-              '${automatic ? ' • added automatically' : ''}'),
-          if (splits.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  for (final s in splits)
-                    Pill('${s.category} ${fmtCents(s.amountCents)}',
-                        color: categoryColor(context, s.category),
-                        fontSize: 11),
-                ],
-              ),
-            ),
-          if (tags.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Wrap(
-                spacing: 6,
-                children: [
-                  for (final tag in tags)
-                    Pill(tag, color: categoryColor(context, tag), fontSize: 11),
-                ],
-              ),
-            ),
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '${e.type == EntryType.income ? '+' : '-'}'
-            '${fmtCents(e.amountCents)}',
-            style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: e.type == EntryType.income ? scheme.primary : null),
-          ),
-          IconButton(
-            tooltip: automatic
-                ? 'Added automatically — edit it where it comes from'
-                : 'Edit',
-            icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: automatic
-                ? null
-                : () => showAddTransaction(context, ref, existing: e),
-          ),
-          IconButton(
-            tooltip: automatic
-                ? 'Added automatically — remove it where it comes from'
-                : 'Delete',
-            icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: automatic
-                ? null
-                : () => ref.read(repositoryProvider).deleteBudgetEntry(
-                    profileId: ref.read(activeProfileProvider)!.id, id: e.id),
-          ),
         ],
       ),
     );

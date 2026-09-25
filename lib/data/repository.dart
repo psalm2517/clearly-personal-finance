@@ -1753,6 +1753,54 @@ class HomebaseRepository {
         .fold(0, (sum, b) => sum + b.amountCents));
   }
 
+  /// The bills that actually charge in [month], added up by their category,
+  /// with monthly card fees as "Card fees". The plan compares these with the
+  /// targets set on the same categories — see [planCommitments].
+  Stream<Map<String, int>> watchBillsDueByCategoryForMonth(
+      {required int profileId, required DateTime month}) {
+    final periodStart = DateTime(month.year, month.month);
+    return combineLatest<dynamic>([
+      watchBills(profileId: profileId),
+      watchCards(profileId: profileId),
+    ]).map((data) {
+      final bills = data[0] as List<Bill>;
+      final cards = data[1] as List<CreditCard>;
+      final byCategory = <String, int>{};
+      for (final b in bills.where((b) => billFallsIn(b, periodStart))) {
+        byCategory[b.category] = (byCategory[b.category] ?? 0) + b.amountCents;
+      }
+      final fees = cards.fold(0, (sum, c) => sum + c.monthlyFeeCents);
+      if (fees > 0) {
+        byCategory['Card fees'] = (byCategory['Card fees'] ?? 0) + fees;
+      }
+      return byCategory;
+    });
+  }
+
+  /// How much of the month is already spoken for, counting each category
+  /// once. A category is planned at its target — bill payments count toward
+  /// that category's spending, so the target already includes them — or,
+  /// where there is no target (or the bills are bigger), at its bills.
+  /// [targetsCents] is the sum of every target; [billsBeyondTargetsCents] is
+  /// whatever bills add on top of them.
+  static ({int targetsCents, int billsBeyondTargetsCents}) planCommitments({
+    required Map<String, int> targetByCategory,
+    required Map<String, int> billsDueByCategory,
+  }) {
+    var targets = 0;
+    var beyond = 0;
+    for (final category in {
+      ...targetByCategory.keys,
+      ...billsDueByCategory.keys,
+    }) {
+      final target = targetByCategory[category] ?? 0;
+      final bills = billsDueByCategory[category] ?? 0;
+      targets += target;
+      if (bills > target) beyond += bills - target;
+    }
+    return (targetsCents: targets, billsBeyondTargetsCents: beyond);
+  }
+
   /// Of the bills due in [month], just the ones actually marked (or
   /// autopay-materialized) paid — the subset that has really posted, unlike
   /// [watchBillsDueThisMonthCents] which counts everything due whether or

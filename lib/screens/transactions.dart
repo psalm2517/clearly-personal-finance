@@ -37,6 +37,8 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   String _search = '';
   var _kind = _Kind.all;
   String? _sourceFilter; // "account:3" or "card:2"
+  DateTime? _monthFilter; // first day of the month, or any month
+  String? _tagFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -104,9 +106,16 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 : cardId == id;
           }
 
+          bool inMonth(DateTime d) =>
+              _monthFilter == null ||
+              (d.year == _monthFilter!.year && d.month == _monthFilter!.month);
+
           final lines = <_Line>[
             for (final e in entries)
-              if ((_kind == _Kind.all ||
+              if (inMonth(e.date) &&
+                  (_tagFilter == null ||
+                      (tagsByEntry[e.id] ?? const []).contains(_tagFilter)) &&
+                  (_kind == _Kind.all ||
                       (_kind == _Kind.income && e.type == EntryType.income) ||
                       (_kind == _Kind.expense &&
                           e.type == EntryType.expense)) &&
@@ -118,7 +127,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                       (e.payee?.toLowerCase().contains(search) ?? false)))
                 (date: e.date, entry: e, movement: null),
             for (final m in movements)
-              if ((_kind == _Kind.all ||
+              if (inMonth(m.date) &&
+                  _tagFilter == null &&
+                  (_kind == _Kind.all ||
                       (_kind == _Kind.transfer &&
                           m.kind == MovementKind.transfer) ||
                       (_kind == _Kind.payment &&
@@ -128,6 +139,18 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                   (search.isEmpty || m.label.toLowerCase().contains(search)))
                 (date: m.date, entry: null, movement: m),
           ]..sort((a, b) => b.date.compareTo(a.date));
+
+          final months = {
+            for (final e in entries) DateTime(e.date.year, e.date.month),
+            for (final m in movements) DateTime(m.date.year, m.date.month),
+          }.toList()
+            ..sort((a, b) => b.compareTo(a));
+          final allTags = {for (final t in tagsByEntry.values) ...t}.toList()
+            ..sort();
+          const monthNames = [
+            'January', 'February', 'March', 'April', 'May', 'June', 'July',
+            'August', 'September', 'October', 'November', 'December'
+          ];
 
           String? sourceLabel(BudgetEntry e) {
             if (e.accountId != null) {
@@ -143,56 +166,89 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(28, 20, 28, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText:
-                              'Search description, payee or category',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        onChanged: (v) => setState(() => _search = v),
+                child: TextField(
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search description, payee or category',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => _search = v),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 12, 28, 0),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      SegmentedButton<_Kind>(
+                        segments: const [
+                          ButtonSegment(value: _Kind.all, label: Text('All')),
+                          ButtonSegment(
+                              value: _Kind.income, label: Text('Income')),
+                          ButtonSegment(
+                              value: _Kind.expense, label: Text('Expense')),
+                          ButtonSegment(
+                              value: _Kind.transfer,
+                              label: Text('Transfers')),
+                          ButtonSegment(
+                              value: _Kind.payment, label: Text('Payments')),
+                        ],
+                        selected: {_kind},
+                        onSelectionChanged: (s) =>
+                            setState(() => _kind = s.first),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    SegmentedButton<_Kind>(
-                      segments: const [
-                        ButtonSegment(value: _Kind.all, label: Text('All')),
-                        ButtonSegment(
-                            value: _Kind.income, label: Text('Income')),
-                        ButtonSegment(
-                            value: _Kind.expense, label: Text('Expense')),
-                        ButtonSegment(
-                            value: _Kind.transfer, label: Text('Transfers')),
-                        ButtonSegment(
-                            value: _Kind.payment, label: Text('Payments')),
-                      ],
-                      selected: {_kind},
-                      onSelectionChanged: (s) =>
-                          setState(() => _kind = s.first),
-                    ),
-                    if (accounts.isNotEmpty || cards.isNotEmpty) ...[
-                      const SizedBox(width: 12),
-                      DropdownButton<String?>(
-                        value: _sourceFilter,
-                        hint: const Text('Any account'),
+                      const SizedBox(width: 16),
+                      DropdownButton<DateTime?>(
+                        value: _monthFilter,
+                        hint: const Text('Any month'),
                         items: [
                           const DropdownMenuItem(
-                              value: null, child: Text('Any account')),
-                          for (final a in accounts)
+                              value: null, child: Text('Any month')),
+                          for (final m in months)
                             DropdownMenuItem(
-                                value: 'account:${a.id}', child: Text(a.name)),
-                          for (final c in cards)
-                            DropdownMenuItem(
-                                value: 'card:${c.id}', child: Text(c.name)),
+                                value: m,
+                                child: Text(
+                                    '${monthNames[m.month - 1]} ${m.year}')),
                         ],
-                        onChanged: (v) => setState(() => _sourceFilter = v),
+                        onChanged: (v) => setState(() => _monthFilter = v),
                       ),
+                      if (allTags.isNotEmpty) ...[
+                        const SizedBox(width: 16),
+                        DropdownButton<String?>(
+                          value: _tagFilter,
+                          hint: const Text('Any tag'),
+                          items: [
+                            const DropdownMenuItem(
+                                value: null, child: Text('Any tag')),
+                            for (final t in allTags)
+                              DropdownMenuItem(value: t, child: Text(t)),
+                          ],
+                          onChanged: (v) => setState(() => _tagFilter = v),
+                        ),
+                      ],
+                      if (accounts.isNotEmpty || cards.isNotEmpty) ...[
+                        const SizedBox(width: 16),
+                        DropdownButton<String?>(
+                          value: _sourceFilter,
+                          hint: const Text('Any account'),
+                          items: [
+                            const DropdownMenuItem(
+                                value: null, child: Text('Any account')),
+                            for (final a in accounts)
+                              DropdownMenuItem(
+                                  value: 'account:${a.id}',
+                                  child: Text(a.name)),
+                            for (final c in cards)
+                              DropdownMenuItem(
+                                  value: 'card:${c.id}', child: Text(c.name)),
+                          ],
+                          onChanged: (v) => setState(() => _sourceFilter = v),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               Expanded(
