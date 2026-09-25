@@ -5,6 +5,7 @@ import '../util/streams.dart';
 import 'csv_import.dart';
 import 'database.dart';
 import 'reminder.dart';
+import 'transaction_draft.dart';
 
 /// One kind of activity seen in [HomebaseRepository.watchAccountHistory] and
 /// [HomebaseRepository.watchCardHistory].
@@ -1934,9 +1935,10 @@ class HomebaseRepository {
   /// so this shouldn't need a click. Paychecks you set by hand are left
   /// alone, so an override (delayed, never arrived) is not undone.
   /// Idempotent — safe to call on every screen load.
-  Future<void> materializeReceivedPaychecks({required int profileId}) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+  Future<void> materializeReceivedPaychecks(
+      {required int profileId, DateTime? now}) async {
+    final n = now ?? DateTime.now();
+    final today = DateTime(n.year, n.month, n.day);
     final due = await (_db.select(_db.paychecks)
           ..where((p) =>
               p.profileId.equals(profileId) &
@@ -2253,6 +2255,175 @@ class HomebaseRepository {
       }
     }
     await recordNetWorthSnapshot(profileId: profileId);
+  }
+
+  // ---- Adding transactions ----
+
+  /// The one entry point for recording money. Routes a [TransactionDraft] to
+  /// wherever that kind of thing lives, so the screens never have to know:
+  ///
+  ///  - a one-off income/expense is a budget entry (with splits and tags);
+  ///  - a repeating expense is a recurring transaction;
+  ///  - repeating income is a paycheck schedule, since regular income is
+  ///    what paychecks are and they carry the deposit account;
+  ///  - a transfer is a one-off transfer, or a recurring one if it repeats;
+  ///  - a payment is a card or loan payment.
+  ///
+  /// Anything that repeats is posted straight away for every occurrence
+  /// already due, so it takes effect immediately instead of at next launch.
+  /// Throws [ArgumentError] with a message fit to show for a draft that
+  /// can't be saved.
+  Future<void> addTransaction({
+    required int profileId,
+    required TransactionDraft draft,
+    DateTime? now,
+  }) async {
+    final n = now ?? DateTime.now();
+    final today = DateTime(n.year, n.month, n.day);
+    final day = DateTime(draft.date.year, draft.date.month, draft.date.day);
+    final name = draft.name?.trim() ?? '';
+
+    if (draft.amountCents <= 0) {
+      throw ArgumentError('enter an amount greater than zero');
+    }
+    if (!draft.repeats && day.isAfter(today)) {
+      throw ArgumentError(
+          'a one-off can\'t be dated in the future; turn on Repeats to '
+          'schedule it');
+    }
+
+    switch (draft.kind) {
+      case DraftKind.expense:
+      case DraftKind.income:
+        final type = draft.kind == DraftKind.income
+            ? EntryType.income
+            : EntryType.expense;
+        if (draft.accountId != null && draft.cardId != null) {
+          throw ArgumentError('choose an account or a card, not both');
+        }
+        if (!draft.repeats) {
+          if (draft.splits.isNotEmpty &&
+              draft.splits.fold(0, (s, r) => s + r.amountCents) !=
+                  draft.amountCents) {
+            throw ArgumentError('splits must add up to the total amount');
+          }
+          final category = draft.splits.isNotEmpty
+              ? 'Split'
+              : (draft.category?.trim().isEmpty ?? true)
+                  ? 'Other'
+                  : draft.category!.trim();
+          final entryId = await addBudgetEntry(BudgetEntriesCompanion.insert(
+            profileId: profileId,
+            date: day,
+            amountCents: draft.amountCents,
+            type: type,
+            category: Value(category),
+            description: Value(name.isEmpty ? null : name),
+            payee: Value(draft.payee?.trim().isEmpty ?? true
+                ? null
+                : draft.payee!.trim()),
+            accountId: Value(draft.accountId),
+            cardId: Value(draft.cardId),
+          ));
+          if (draft.splits.isNotEmpty) {
+            await setEntrySplits(
+                profileId: profileId, entryId: entryId, splits: draft.splits);
+          }
+          if (draft.tags.isNotEmpty) {
+            await setEntryTags(
+                profileId: profileId, entryId: entryId, tagNames: draft.tags);
+          }
+          return;
+        }
+
+        if (name.isEmpty) {
+          throw ArgumentError('a repeating item needs a name');
+        }
+        if (draft.kind == DraftKind.income) {
+          if (draft.cardId != null) {
+            throw ArgumentError(
+                'repeating income is deposited to an account, not a card');
+          }
+          await upsertSchedule(PaycheckSchedulesCompanion.insert(
+            profileId: profileId,
+            name: name,
+            frequency: draft.frequency,
+            anchorDate: day,
+            amountCents: draft.amountCents,
+            accountId: Value(draft.accountId),
+          ));
+          await generateDuePaychecks(
+              profileId: profileId, until: n.add(paycheckHorizon));
+          await materializeReceivedPaychecks(profileId: profileId, now: n);
+        } else {
+          await upsertRecurringTransaction(
+              RecurringTransactionsCompanion.insert(
+            profileId: profileId,
+            name: name,
+            type: type,
+            amountCents: draft.amountCents,
+            category: Value((draft.category?.trim().isEmpty ?? true)
+                ? 'Other'
+                : draft.category!.trim()),
+            frequency: draft.frequency,
+            anchorDate: day,
+            accountId: Value(draft.accountId),
+            cardId: Value(draft.cardId),
+          ));
+          await materializeDueRecurringTransactions(
+              profileId: profileId, now: n);
+        }
+
+      case DraftKind.transfer:
+        if (draft.accountId == null || draft.toAccountId == null) {
+          throw ArgumentError('choose the accounts to move money between');
+        }
+        if (draft.accountId == draft.toAccountId) {
+          throw ArgumentError('the two accounts must be different');
+        }
+        final label = name.isEmpty ? 'Transfer' : name;
+        if (!draft.repeats) {
+          await postManualTransfer(
+            profileId: profileId,
+            fromAccountId: draft.accountId!,
+            toAccountId: draft.toAccountId!,
+            amountCents: draft.amountCents,
+            date: day,
+            name: label,
+            targetCategory: draft.targetCategory,
+          );
+        } else {
+          await upsertRecurringTransfer(RecurringTransfersCompanion.insert(
+            profileId: profileId,
+            name: label,
+            fromAccountId: draft.accountId!,
+            toAccountId: draft.toAccountId!,
+            amountCents: draft.amountCents,
+            frequency: draft.frequency,
+            anchorDate: day,
+            targetCategory: Value(draft.targetCategory),
+          ));
+          await materializeDueTransfers(profileId: profileId, now: n);
+        }
+
+      case DraftKind.payment:
+        if (draft.repeats) {
+          throw ArgumentError(
+              'a payment can\'t repeat; add the bill it belongs to instead');
+        }
+        if (draft.payableType == null || draft.payableId == null) {
+          throw ArgumentError('choose the card or loan you paid');
+        }
+        await addPayment(
+          profileId: profileId,
+          accountType: draft.payableType!,
+          accountId: draft.payableId!,
+          amountCents: draft.amountCents,
+          date: day,
+          note: draft.note?.trim().isEmpty ?? true ? null : draft.note!.trim(),
+          fromAccountId: draft.accountId,
+        );
+    }
   }
 
   // ---- General recurring transactions ----
@@ -2696,6 +2867,15 @@ class HomebaseRepository {
             ..where((b) => b.profileId.equals(profileId))
             ..orderBy([(b) => OrderingTerm.desc(b.importedAt)]))
           .watch();
+
+  /// Entries Clearly created itself from a paycheck, a bill payment or a
+  /// recurring transaction. They are edited or removed at their source, not
+  /// by hand — changing one directly would leave the source and the entry
+  /// disagreeing.
+  static bool isAutomaticEntry(BudgetEntry e) =>
+      e.sourcePaycheckId != null ||
+      e.sourceBillPaymentId != null ||
+      e.sourceRecurringTransactionLogId != null;
 
   /// Whether [entry] actually moved cash. Charging a card doesn't — the
   /// cash leaves later, when the card is paid — so counting both the charge

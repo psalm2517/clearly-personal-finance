@@ -7,7 +7,6 @@ import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
 import '../widgets/common.dart';
-import '../widgets/payment_dialog.dart';
 import '../widgets/payoff_simulator.dart';
 import '../widgets/payment_history.dart';
 import '../widgets/transaction_history.dart';
@@ -24,22 +23,6 @@ class CardsScreen extends ConsumerWidget {
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          StreamBuilder<List<CreditCard>>(
-            stream: repo.watchCards(profileId: profileId),
-            builder: (context, snap) {
-              final cards = snap.data ?? [];
-              if (cards.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: FloatingActionButton.extended(
-                  heroTag: 'cardPayment',
-                  onPressed: () => _logPayment(context, ref, cards, null),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Log payment'),
-                ),
-              );
-            },
-          ),
           FloatingActionButton.extended(
             heroTag: 'addCard',
             onPressed: () => _edit(context, ref, null),
@@ -131,11 +114,6 @@ class CardsScreen extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          TextButton.icon(
-                              onPressed: () =>
-                                  _logPayment(context, ref, [c], c),
-                              icon: const Icon(Icons.payments_outlined),
-                              label: const Text('Pay')),
                           FilledButton.tonalIcon(
                               onPressed: () => _whatIf(context, c),
                               icon: const Icon(Icons.query_stats),
@@ -207,37 +185,6 @@ class CardsScreen extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _logPayment(BuildContext context, WidgetRef ref,
-      List<CreditCard> cards, CreditCard? preselect) async {
-    final accounts = [
-      for (final c in cards)
-        PayableAccount(
-            type: PaymentAccountType.card,
-            id: c.id,
-            name: c.name,
-            balanceCents: c.balanceCents),
-    ];
-    final repo = ref.read(repositoryProvider);
-    final profileId = ref.read(activeProfileProvider)!.id;
-    final fromAccounts = (await repo.watchAccounts(profileId: profileId).first)
-        .where((a) => HomebaseRepository.cashAccountTypes.contains(a.type))
-        .toList();
-    if (!context.mounted) return;
-    final logged = await showQuickPaymentDialog(
-      context,
-      ref,
-      accounts: accounts,
-      preselected: preselect == null
-          ? null
-          : accounts.firstWhere((a) => a.id == preselect.id),
-      fromAccounts: fromAccounts,
-    );
-    if (logged && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Payment logged and balance updated')));
-    }
   }
 
   Future<void> _delete(

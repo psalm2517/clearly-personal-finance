@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/csv_import.dart';
 import '../data/database.dart';
-import '../data/repository.dart' show Movement, MovementKind;
+import '../data/repository.dart'
+    show HomebaseRepository, Movement, MovementKind;
 import '../main.dart';
 import '../util/money.dart';
+import '../widgets/add_transaction.dart';
 import '../widgets/common.dart';
 import 'import_csv.dart';
 
@@ -241,6 +243,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     String? sourceLabel,
     ColorScheme scheme,
   ) {
+    final automatic = HomebaseRepository.isAutomaticEntry(e);
     return ListTile(
       leading: Icon(
         e.type == EntryType.income ? Icons.arrow_downward : Icons.arrow_upward,
@@ -268,15 +271,58 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             ),
         ],
       ),
-      trailing: MoneyText(
-        '${e.type == EntryType.income ? '+' : '-'}${fmtCents(e.amountCents)}',
-        style: TextStyle(
-          fontFamily: 'monospace',
-          fontWeight: FontWeight.w600,
-          color: e.type == EntryType.income ? scheme.primary : null,
-        ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MoneyText(
+            '${e.type == EntryType.income ? '+' : '-'}${fmtCents(e.amountCents)}',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w600,
+              color: e.type == EntryType.income ? scheme.primary : null,
+            ),
+          ),
+          IconButton(
+            tooltip: automatic
+                ? 'Added automatically — edit it where it comes from'
+                : 'Edit',
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            onPressed:
+                automatic ? null : () => showAddTransaction(context, ref, existing: e),
+          ),
+          IconButton(
+            tooltip: automatic
+                ? 'Added automatically — remove it where it comes from'
+                : 'Delete',
+            icon: const Icon(Icons.delete_outline, size: 18),
+            onPressed: automatic ? null : () => _deleteEntry(context, e),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _deleteEntry(BuildContext context, BudgetEntry e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this transaction?'),
+        content: Text(
+            '${e.description ?? e.category} (${fmtCents(e.amountCents)}) '
+            'is removed, and any balance it moved is put back.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref.read(repositoryProvider).deleteBudgetEntry(
+        profileId: ref.read(activeProfileProvider)!.id, id: e.id);
   }
 
   /// A transfer or card/loan payment. Shown in a neutral colour with no

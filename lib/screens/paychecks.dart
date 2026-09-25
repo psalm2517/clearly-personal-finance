@@ -38,11 +38,6 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
     final repo = ref.watch(repositoryProvider);
     final profileId = ref.watch(activeProfileProvider)!.id;
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _editSchedule(context, null),
-        icon: const Icon(Icons.add),
-        label: const Text('Add schedule'),
-      ),
       body: SingleChildScrollView(
         padding: kPagePadding,
         child: Column(
@@ -78,8 +73,8 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
                         icon: Icons.repeat,
                         title: 'No schedules yet',
                         message:
-                            'Add a weekly, bi-weekly, semi-monthly or monthly '
-                            'schedule and paychecks generate automatically.',
+                            'Use Add at the top, choose Income and turn on '
+                            'Repeats. Paychecks then generate automatically.',
                       ),
                     ),
                   );

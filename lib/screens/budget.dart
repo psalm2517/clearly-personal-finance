@@ -1,4 +1,3 @@
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,9 +5,9 @@ import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
+import '../widgets/add_transaction.dart';
 import '../widgets/common.dart';
 import '../widgets/sankey_chart.dart';
-import 'accounts.dart';
 
 const _monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -41,11 +40,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _editEntry(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Add entry'),
-      ),
       body: StreamBuilder<List<dynamic>>(
         stream: combineLatest<dynamic>([
           repo.watchBudgetForMonth(profileId: profileId, month: _month),
@@ -581,7 +575,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
 
   Widget _entryTile(BuildContext context, BudgetEntry e, List<String> tags,
       List<TransactionSplit> splits, ColorScheme scheme) {
-    final automatic = e.sourcePaycheckId != null || e.sourceBillPaymentId != null;
+    final automatic = HomebaseRepository.isAutomaticEntry(e);
     return ListTile(
       leading: Icon(
           e.sourcePaycheckId != null
@@ -640,14 +634,16 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           ),
           IconButton(
             tooltip: automatic
-                ? 'Added automatically — edit it on Paychecks or Bills'
+                ? 'Added automatically — edit it where it comes from'
                 : 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: automatic ? null : () => _editEntry(context, existing: e),
+            onPressed: automatic
+                ? null
+                : () => showAddTransaction(context, ref, existing: e),
           ),
           IconButton(
             tooltip: automatic
-                ? 'Added automatically — remove it on Paychecks or Bills'
+                ? 'Added automatically — remove it where it comes from'
                 : 'Delete',
             icon: const Icon(Icons.delete_outline, size: 18),
             onPressed: automatic
@@ -794,365 +790,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
         profileId: profileId,
         category: category,
         monthlyTargetCents: cents));
-  }
-
-  Future<void> _editEntry(BuildContext context, {BudgetEntry? existing}) async {
-    final repo = ref.read(repositoryProvider);
-    final profileId = ref.read(activeProfileProvider)!.id;
-    final description = TextEditingController(text: existing?.description);
-    final amount = TextEditingController(
-        text: existing == null
-            ? ''
-            : (existing.amountCents / 100).toString());
-    final category = TextEditingController(
-        text: existing == null || existing.category == 'Split'
-            ? existing?.category ?? ''
-            : existing.category);
-    final payee = TextEditingController(text: existing?.payee);
-    var type = existing?.type ?? EntryType.expense;
-    var autoCategorized = false;
-    // Encoded as "account:3" or "card:2" so one dropdown can offer both.
-    String? source = existing == null
-        ? null
-        : existing.accountId != null
-            ? 'account:${existing.accountId}'
-            : existing.cardId != null
-                ? 'card:${existing.cardId}'
-                : null;
-    var splitMode = false;
-    final splitRows = <({TextEditingController category, TextEditingController amount})>[];
-    var existingTags = <String>[];
-    if (existing != null) {
-      final splits = await repo.splitsFor(entryId: existing.id);
-      if (splits.isNotEmpty) {
-        splitMode = true;
-        splitRows.addAll([
-          for (final s in splits)
-            (
-              category: TextEditingController(text: s.category),
-              amount: TextEditingController(
-                  text: (s.amountCents / 100).toString()),
-            ),
-        ]);
-      }
-      final tagsByEntry =
-          await repo.watchEntryTagNames(profileId: profileId).first;
-      existingTags = tagsByEntry[existing.id] ?? [];
-    }
-    final tags = TextEditingController(text: existingTags.join(', '));
-    final accounts = (await repo.watchAccounts(profileId: profileId).first)
-        .where((a) =>
-            HomebaseRepository.cashAccountTypes.contains(a.type) ||
-            a.id == existing?.accountId)
-        .toList();
-    final cards = await repo.watchCards(profileId: profileId).first;
-    if (!context.mounted) return;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(existing == null ? 'Add entry' : 'Edit entry'),
-          content: SizedBox(
-            width: 360,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              SegmentedButton<EntryType>(
-                segments: const [
-                  ButtonSegment(
-                      value: EntryType.expense, label: Text('Expense')),
-                  ButtonSegment(
-                      value: EntryType.income, label: Text('Income')),
-                ],
-                selected: {type},
-                onSelectionChanged: (s) => setState(() => type = s.first),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: description,
-                textInputAction: TextInputAction.next,
-                onSubmitted: (_) {
-                  if (parseDollarsToCents(amount.text) != null) {
-                    Navigator.pop(context, true);
-                  }
-                },
-                decoration: const InputDecoration(
-                    labelText: 'Description', border: OutlineInputBorder()),
-                onChanged: (text) async {
-                  final match = await repo.categorize(
-                      profileId: profileId,
-                      description: text,
-                      amountCents: parseDollarsToCents(amount.text));
-                  if (match != null &&
-                      (category.text.isEmpty || autoCategorized)) {
-                    setState(() {
-                      category.text = match;
-                      autoCategorized = true;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                  controller: amount,
-                  onSubmitted: (_) {
-                  if (parseDollarsToCents(amount.text) != null) {
-                    Navigator.pop(context, true);
-                  }
-                },
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                      labelText: 'Amount (\$)',
-                      border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              if (!splitMode)
-                TextField(
-                    controller: category,
-                    onSubmitted: (_) {
-                  if (parseDollarsToCents(amount.text) != null) {
-                    Navigator.pop(context, true);
-                  }
-                },
-                    onChanged: (_) => autoCategorized = false,
-                    decoration: InputDecoration(
-                        labelText: 'Category',
-                        helperText: autoCategorized
-                            ? 'Auto-categorized by rule'
-                            : null,
-                        border: const OutlineInputBorder())),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Split into categories'),
-                subtitle: const Text(
-                    'Break this amount across more than one category'),
-                value: splitMode,
-                onChanged: (v) => setState(() {
-                  splitMode = v;
-                  if (v && splitRows.isEmpty) {
-                    splitRows.addAll([
-                      (
-                        category: TextEditingController(),
-                        amount: TextEditingController()
-                      ),
-                      (
-                        category: TextEditingController(),
-                        amount: TextEditingController()
-                      ),
-                    ]);
-                  }
-                }),
-              ),
-              if (splitMode) ...[
-                for (var i = 0; i < splitRows.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(children: [
-                      Expanded(
-                        flex: 3,
-                        child: TextField(
-                          controller: splitRows[i].category,
-                          decoration: const InputDecoration(
-                              labelText: 'Category',
-                              isDense: true,
-                              border: OutlineInputBorder()),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: splitRows[i].amount,
-                          onChanged: (_) => setState(() {}),
-                          decoration: const InputDecoration(
-                              labelText: '\$',
-                              isDense: true,
-                              border: OutlineInputBorder()),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, size: 18),
-                        onPressed: splitRows.length <= 1
-                            ? null
-                            : () => setState(() => splitRows.removeAt(i)),
-                      ),
-                    ]),
-                  ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('Add split'),
-                    onPressed: () => setState(() => splitRows.add((
-                          category: TextEditingController(),
-                          amount: TextEditingController(),
-                        ))),
-                  ),
-                ),
-                Builder(builder: (context) {
-                  final total = parseDollarsToCents(amount.text) ?? 0;
-                  final splitTotal = splitRows.fold<int>(
-                      0, (s, r) => s + (parseDollarsToCents(r.amount.text) ?? 0));
-                  final matches = splitTotal == total;
-                  return Text(
-                    '${fmtCents(splitTotal)} of ${fmtCents(total)} allocated',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color:
-                            matches ? null : Theme.of(context).colorScheme.error),
-                  );
-                }),
-                const SizedBox(height: 4),
-              ],
-              const SizedBox(height: 12),
-              TextField(
-                  controller: payee,
-                  onSubmitted: (_) {
-                  if (parseDollarsToCents(amount.text) != null) {
-                    Navigator.pop(context, true);
-                  }
-                },
-                  decoration: const InputDecoration(
-                      labelText: 'Payee (optional)',
-                      border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              TextField(
-                  controller: tags,
-                  onSubmitted: (_) {
-                  if (parseDollarsToCents(amount.text) != null) {
-                    Navigator.pop(context, true);
-                  }
-                },
-                  decoration: const InputDecoration(
-                      labelText: 'Tags (optional, comma separated)',
-                      border: OutlineInputBorder())),
-              if (accounts.isNotEmpty || cards.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String?>(
-                  initialValue: source,
-                  decoration: const InputDecoration(
-                      labelText: 'Account or card (optional)',
-                      helperText: 'Linking one moves this amount off (or '
-                          'onto) its balance',
-                      border: OutlineInputBorder()),
-                  items: [
-                    const DropdownMenuItem(
-                        value: null, child: Text('Not linked')),
-                    for (final a in accounts)
-                      DropdownMenuItem(
-                        value: 'account:${a.id}',
-                        child: Row(children: [
-                          Icon(accountIcon(a.type), size: 16, color: accountTypeColor(context, a.type)),
-                          const SizedBox(width: 8),
-                          Text(a.name),
-                        ]),
-                      ),
-                    for (final c in cards)
-                      DropdownMenuItem(
-                        value: 'card:${c.id}',
-                        child: Row(children: [
-                          const Icon(Icons.credit_card, size: 16),
-                          const SizedBox(width: 8),
-                          Text(c.name),
-                        ]),
-                      ),
-                  ],
-                  onChanged: (v) => setState(() => source = v),
-                ),
-              ],
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
-            FilledButton(
-                onPressed: parseDollarsToCents(amount.text) == null
-                    ? null
-                    : () => Navigator.pop(context, true),
-                child: Text(existing == null ? 'Save' : 'Save changes')),
-          ],
-        ),
-      ),
-    );
-    if (saved != true) return;
-    final cents = parseDollarsToCents(amount.text);
-    if (cents == null) {
-      if (context.mounted) warnNotSaved(context, 'enter an amount');
-      return;
-    }
-    // Splits are set unconditionally when editing (even to an empty list)
-    // so turning split mode off on a previously-split entry actually
-    // clears the old ones instead of leaving them behind.
-    List<({String category, int amountCents})> splits = [];
-    if (splitMode) {
-      splits = [
-        for (final row in splitRows)
-          if (row.category.text.trim().isNotEmpty)
-            (
-              category: row.category.text.trim(),
-              amountCents: parseDollarsToCents(row.amount.text) ?? 0,
-            ),
-      ];
-      final splitTotal = splits.fold(0, (s, r) => s + r.amountCents);
-      if (splits.isEmpty || splitTotal != cents) {
-        if (context.mounted) {
-          warnNotSaved(context, 'splits must add up to the total amount');
-        }
-        return;
-      }
-    }
-    final sourceParts = source?.split(':');
-    final isAccount = sourceParts == null || sourceParts[0] == 'account';
-    final categoryValue = Value(splitMode
-        ? 'Split'
-        : category.text.trim().isEmpty
-            ? 'Other'
-            : category.text.trim());
-    final descriptionValue = Value(
-        description.text.trim().isEmpty ? null : description.text.trim());
-    final payeeValue =
-        Value(payee.text.trim().isEmpty ? null : payee.text.trim());
-    final accountIdValue = Value(
-        sourceParts == null || !isAccount ? null : int.parse(sourceParts[1]));
-    final cardIdValue = Value(
-        sourceParts == null || isAccount ? null : int.parse(sourceParts[1]));
-
-    final int entryId;
-    if (existing == null) {
-      entryId = await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
-        profileId: profileId,
-        date: DateTime.now(),
-        amountCents: cents,
-        type: type,
-        category: categoryValue,
-        description: descriptionValue,
-        payee: payeeValue,
-        accountId: accountIdValue,
-        cardId: cardIdValue,
-      ));
-    } else {
-      entryId = existing.id;
-      await repo.updateBudgetEntry(
-        profileId: profileId,
-        id: existing.id,
-        entry: BudgetEntriesCompanion(
-          amountCents: Value(cents),
-          type: Value(type),
-          category: categoryValue,
-          description: descriptionValue,
-          payee: payeeValue,
-          accountId: accountIdValue,
-          cardId: cardIdValue,
-        ),
-      );
-    }
-    await repo.setEntrySplits(
-        profileId: profileId, entryId: entryId, splits: splits);
-    // Set unconditionally, same as splits above — clears old tags on an
-    // edit that removes them, and is a harmless no-op for a fresh entry.
-    await repo.setEntryTags(
-        profileId: profileId,
-        entryId: entryId,
-        tagNames: tags.text.split(','));
   }
 
   Future<void> _manageTargets(BuildContext context) async {

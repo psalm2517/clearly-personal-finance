@@ -7,6 +7,7 @@ import '../data/repository.dart';
 import '../main.dart';
 import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
+import '../widgets/add_transaction.dart';
 import 'accounts_hub.dart';
 import 'bills.dart';
 import 'budget.dart';
@@ -101,6 +102,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       appBar: AppBar(
         title: Text(titles[_index]),
         actions: [
+          // The one place to record money, from any screen.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: FilledButton.icon(
+              onPressed: () => showAddTransaction(context, ref),
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
+            ),
+          ),
           if (loggedIn.isAdmin) _ProfileSwitcher(active: active),
           IconButton(
             tooltip: flavor.isDark

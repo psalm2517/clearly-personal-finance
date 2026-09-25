@@ -29,11 +29,6 @@ class RecurringTransactionsScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _edit(context, ref, null),
-        icon: const Icon(Icons.add),
-        label: const Text('Add recurring'),
-      ),
       body: StreamBuilder<List<dynamic>>(
         stream: combineLatest<dynamic>([
           repo.watchRecurringTransactions(profileId: profileId),
@@ -65,9 +60,9 @@ class RecurringTransactionsScreen extends ConsumerWidget {
             return const EmptyState(
               icon: Icons.autorenew,
               title: 'No recurring transactions',
-              message: 'Subscriptions, rental income, a side-gig deposit — '
-                  'anything on a repeating schedule that is not a bill or a '
-                  'paycheck.',
+              message: 'Use Add at the top and turn on Repeats for a '
+                  'subscription or anything else that posts on a schedule. '
+                  'It shows up here so you can pause or change it.',
             );
           }
 

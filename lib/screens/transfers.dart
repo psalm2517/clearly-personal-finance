@@ -29,26 +29,6 @@ class TransfersScreen extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FloatingActionButton.extended(
-              heroTag: 'transferNow',
-              onPressed: () => _transferNow(context, ref),
-              icon: const Icon(Icons.bolt_outlined),
-              label: const Text('Transfer now'),
-            ),
-          ),
-          FloatingActionButton.extended(
-            heroTag: 'addTransfer',
-            onPressed: () => _edit(context, ref, null),
-            icon: const Icon(Icons.add),
-            label: const Text('Add transfer'),
-          ),
-        ],
-      ),
       body: StreamBuilder<List<dynamic>>(
         stream: combineLatest<dynamic>([
           repo.watchRecurringTransfers(profileId: profileId),
@@ -68,8 +48,9 @@ class TransfersScreen extends ConsumerWidget {
             return const EmptyState(
               icon: Icons.sync_alt_outlined,
               title: 'No recurring transfers',
-              message: 'Automatically move money between your own accounts '
-                  'on a schedule — like sending \$200 to savings every month.',
+              message: 'Use Add at the top, choose Transfer, and turn on '
+                  'Repeats to move money between your own accounts on a '
+                  'schedule — like sending \$200 to savings every month.',
             );
           }
 
@@ -100,7 +81,8 @@ class TransfersScreen extends ConsumerWidget {
                     child: EmptyState(
                       icon: Icons.sync_alt_outlined,
                       title: 'Nothing scheduled',
-                      message: 'Add one to move money automatically.',
+                      message: 'Add a Transfer with Repeats turned on to move '
+                          'money automatically.',
                     ),
                   ),
                 )
@@ -200,135 +182,6 @@ class TransfersScreen extends ConsumerWidget {
       await ref.read(repositoryProvider).deleteRecurringTransfer(
           profileId: ref.read(activeProfileProvider)!.id, id: transfer.id);
     }
-  }
-
-  /// A one-off transfer, moved immediately rather than scheduled — for
-  /// something like moving a bonus to savings today, distinct from
-  /// [_edit]'s recurring schedule.
-  Future<void> _transferNow(BuildContext context, WidgetRef ref) async {
-    final repo = ref.read(repositoryProvider);
-    final profileId = ref.read(activeProfileProvider)!.id;
-    final accounts = await repo.watchAccounts(profileId: profileId).first;
-    if (!context.mounted) return;
-    if (accounts.length < 2) {
-      warnNotSaved(context, 'you need at least two accounts to transfer '
-          'between — add one on the Cash tab first');
-      return;
-    }
-
-    final name = TextEditingController();
-    final amount = TextEditingController();
-    final categories = [
-      for (final t in await repo.watchBudgetTargets(profileId: profileId).first)
-        t.category
-    ];
-    String? category;
-    if (!context.mounted) return;
-    int fromId = accounts[0].id;
-    int toId = accounts.firstWhere((a) => a.id != fromId, orElse: () => accounts[1]).id;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) => SubmitOnEnter(
-          onSubmit: () => Navigator.pop(context, true),
-          child: AlertDialog(
-            title: const Text('Transfer now'),
-            content: SizedBox(
-              width: 380,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                DialogField(name, 'Name (optional)', autofocus: true),
-                const SizedBox(height: 12),
-                DialogField(amount, 'Amount (\$)'),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: fromId,
-                  decoration:
-                      const InputDecoration(labelText: 'From', border: OutlineInputBorder()),
-                  items: [
-                    for (final a in accounts)
-                      DropdownMenuItem(
-                        value: a.id,
-                        child: Row(children: [
-                          Icon(accountIcon(a.type), size: 16, color: accountTypeColor(context, a.type)),
-                          const SizedBox(width: 8),
-                          Text(a.name),
-                        ]),
-                      ),
-                  ],
-                  onChanged: (v) => setLocal(() => fromId = v!),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: toId,
-                  decoration:
-                      const InputDecoration(labelText: 'To', border: OutlineInputBorder()),
-                  items: [
-                    for (final a in accounts)
-                      DropdownMenuItem(
-                        value: a.id,
-                        child: Row(children: [
-                          Icon(accountIcon(a.type), size: 16, color: accountTypeColor(context, a.type)),
-                          const SizedBox(width: 8),
-                          Text(a.name),
-                        ]),
-                      ),
-                  ],
-                  onChanged: (v) => setLocal(() => toId = v!),
-                ),
-                if (categories.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String?>(
-                  initialValue: category,
-                  decoration: const InputDecoration(
-                      labelText: 'Counts toward target (optional)',
-                      helperText: 'Shows in that category\'s target on the '
-                          'Budget screen, e.g. Invest or Save',
-                      helperMaxLines: 2,
-                      border: OutlineInputBorder()),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('None')),
-                    for (final c in categories)
-                      DropdownMenuItem(value: c, child: Text(c)),
-                  ],
-                  onChanged: (v) => setLocal(() => category = v),
-                ),
-                ],
-              ]),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Transfer')),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (saved != true) return;
-    final cents = parseDollarsToCents(amount.text);
-    if (cents == null || cents <= 0) {
-      if (context.mounted) warnNotSaved(context, 'enter an amount');
-      return;
-    }
-    if (fromId == toId) {
-      if (context.mounted) {
-        warnNotSaved(context, 'the two accounts must be different');
-      }
-      return;
-    }
-    await repo.postManualTransfer(
-      profileId: profileId,
-      fromAccountId: fromId,
-      toAccountId: toId,
-      amountCents: cents,
-      date: DateTime.now(),
-      name: name.text.trim().isEmpty ? 'Transfer' : name.text.trim(),
-      targetCategory: category,
-    );
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref,
