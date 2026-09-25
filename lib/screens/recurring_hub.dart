@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
 
+import 'bills.dart';
+import 'paychecks.dart';
 import 'recurring.dart';
+import 'transfers.dart';
 import 'upcoming.dart';
 
-/// Groups the merged "what's coming" list with managing the schedules that
-/// feed it — the same tabbed-hub shape as Accounts (Cash/Cards/Loans grouped
-/// under one destination with a shared header).
-class UpcomingHubScreen extends StatefulWidget {
-  const UpcomingHubScreen({super.key});
+/// Everything that repeats, in one place: what's coming up next, then each
+/// kind of thing that repeats — bills, paychecks, scheduled transfers, and
+/// anything else on a schedule. Add anything new with the Add button.
+class RecurringHubScreen extends StatefulWidget {
+  const RecurringHubScreen({super.key});
 
   @override
-  State<UpcomingHubScreen> createState() => _UpcomingHubScreenState();
+  State<RecurringHubScreen> createState() => _RecurringHubScreenState();
 }
 
-class _UpcomingHubScreenState extends State<UpcomingHubScreen>
+class _RecurringHubScreenState extends State<RecurringHubScreen>
     with SingleTickerProviderStateMixin {
-  late final _controller = TabController(length: 2, vsync: this);
+  late final _controller = TabController(length: 5, vsync: this);
 
   @override
   void dispose() {
@@ -53,7 +56,10 @@ class _UpcomingHubScreenState extends State<UpcomingHubScreen>
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600),
                 tabs: const [
                   Tab(text: 'Upcoming'),
-                  Tab(text: 'Recurring'),
+                  Tab(text: 'Bills'),
+                  Tab(text: 'Paychecks'),
+                  Tab(text: 'Transfers'),
+                  Tab(text: 'Other'),
                 ],
               ),
             ),
@@ -64,6 +70,9 @@ class _UpcomingHubScreenState extends State<UpcomingHubScreen>
             controller: _controller,
             children: const [
               UpcomingScreen(),
+              BillsScreen(),
+              PaychecksScreen(),
+              TransfersScreen(),
               RecurringTransactionsScreen(),
             ],
           ),

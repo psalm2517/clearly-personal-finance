@@ -9,15 +9,13 @@ import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
 import '../widgets/add_transaction.dart';
 import 'accounts_hub.dart';
-import 'bills.dart';
 import 'budget.dart';
+import 'cash_flow.dart';
 import 'dashboard.dart';
-import 'goals.dart';
-import 'paychecks.dart';
-import 'profiles.dart';
+import 'nav.dart';
+import 'recurring_hub.dart';
 import 'settings.dart';
 import 'transactions.dart';
-import 'upcoming_hub.dart';
 
 /// Desktop shell: NavigationRail sidebar + content. Only admins see the
 /// profile switcher; non-admins have no indication other profiles exist.
@@ -29,7 +27,6 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  int _index = 0;
   int? _caughtUpFor;
 
   /// Brings the books up to date for whoever is being viewed: generate
@@ -71,36 +68,21 @@ class _AppShellState extends ConsumerState<AppShell> {
     _catchUp(active.id);
     final flavor = ref.watch(flavorProvider);
 
-    final titles = [
-      'Dashboard',
-      'Accounts',
-      'Bills',
-      'Budget',
-      'Transactions',
-      'Paychecks',
-      'Upcoming',
-      'Goals',
-      'Settings',
-      // Admin-only, appended last so indices stay stable for everyone else.
-      if (loggedIn.isAdmin) 'Profiles',
-    ];
+    final dest = ref.watch(navProvider);
 
-    final pages = [
-      const DashboardScreen(),
-      const AccountsHubScreen(),
-      const BillsScreen(),
-      const BudgetScreen(),
-      const TransactionsScreen(),
-      const PaychecksScreen(),
-      const UpcomingHubScreen(),
-      const GoalsScreen(),
-      const SettingsScreen(),
-      if (loggedIn.isAdmin) const ProfilesScreen(),
-    ];
+    final page = switch (dest) {
+      Dest.dashboard => const DashboardScreen(),
+      Dest.accounts => const AccountsHubScreen(),
+      Dest.transactions => const TransactionsScreen(),
+      Dest.cashFlow => const CashFlowScreen(),
+      Dest.budget => const BudgetScreen(),
+      Dest.recurring => const RecurringHubScreen(),
+      Dest.settings => const SettingsScreen(),
+    };
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_index]),
+        title: Text(dest.title),
         actions: [
           // The one place to record money, from any screen.
           Padding(
@@ -126,6 +108,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             tooltip: 'Log out',
             icon: const Icon(Icons.logout),
             onPressed: () {
+              ref.read(navProvider.notifier).state = Dest.dashboard;
               ref.read(loggedInProfileProvider.notifier).state = null;
               ref.invalidate(activeProfileProvider);
             },
@@ -135,55 +118,43 @@ class _AppShellState extends ConsumerState<AppShell> {
       body: Row(
         children: [
           NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
+            selectedIndex: dest.index,
+            onDestinationSelected: (i) =>
+                ref.read(navProvider.notifier).state = Dest.values[i],
             labelType: NavigationRailLabelType.all,
-            destinations: [
-              const NavigationRailDestination(
+            destinations: const [
+              NavigationRailDestination(
                   icon: Icon(Icons.space_dashboard_outlined),
                   selectedIcon: Icon(Icons.space_dashboard),
                   label: Text('Dashboard')),
-              const NavigationRailDestination(
+              NavigationRailDestination(
                   icon: Icon(Icons.account_balance_outlined),
                   selectedIcon: Icon(Icons.account_balance),
                   label: Text('Accounts')),
-              const NavigationRailDestination(
-                  icon: Icon(Icons.receipt_long_outlined),
-                  selectedIcon: Icon(Icons.receipt_long),
-                  label: Text('Bills')),
-              const NavigationRailDestination(
-                  icon: Icon(Icons.pie_chart_outline),
-                  selectedIcon: Icon(Icons.pie_chart),
-                  label: Text('Budget')),
-              const NavigationRailDestination(
+              NavigationRailDestination(
                   icon: Icon(Icons.swap_horiz_outlined),
                   selectedIcon: Icon(Icons.swap_horiz),
                   label: Text('Transactions')),
-              const NavigationRailDestination(
-                  icon: Icon(Icons.payments_outlined),
-                  selectedIcon: Icon(Icons.payments),
-                  label: Text('Paychecks')),
-              const NavigationRailDestination(
-                  icon: Icon(Icons.upcoming_outlined),
-                  selectedIcon: Icon(Icons.upcoming),
-                  label: Text('Upcoming')),
-              const NavigationRailDestination(
-                  icon: Icon(Icons.flag_outlined),
-                  selectedIcon: Icon(Icons.flag),
-                  label: Text('Goals')),
-              const NavigationRailDestination(
+              NavigationRailDestination(
+                  icon: Icon(Icons.alt_route_outlined),
+                  selectedIcon: Icon(Icons.alt_route),
+                  label: Text('Cash Flow')),
+              NavigationRailDestination(
+                  icon: Icon(Icons.pie_chart_outline),
+                  selectedIcon: Icon(Icons.pie_chart),
+                  label: Text('Budget')),
+              NavigationRailDestination(
+                  icon: Icon(Icons.autorenew_outlined),
+                  selectedIcon: Icon(Icons.autorenew),
+                  label: Text('Recurring')),
+              NavigationRailDestination(
                   icon: Icon(Icons.settings_outlined),
                   selectedIcon: Icon(Icons.settings),
                   label: Text('Settings')),
-              if (loggedIn.isAdmin)
-                const NavigationRailDestination(
-                    icon: Icon(Icons.group_outlined),
-                    selectedIcon: Icon(Icons.group),
-                    label: Text('Profiles')),
             ],
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: pages[_index]),
+          Expanded(child: page),
         ],
       ),
     );

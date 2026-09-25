@@ -11,6 +11,7 @@ import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
 import '../widgets/common.dart';
 import 'duplicates.dart';
+import 'profiles.dart';
 
 final backupServiceProvider = Provider<BackupService>(
     (ref) => BackupService(ref.watch(databaseProvider)));
@@ -212,6 +213,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: EdgeInsets.only(top: 16),
             child: LinearProgressIndicator(),
           ),
+        if (loggedIn.isAdmin) ...[
+          kSectionGap,
+          const SectionHeader('Household', icon: Icons.group_outlined),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.group_outlined),
+              title: const Text('Household profiles'),
+              subtitle: const Text(
+                  'Add people, set PINs, and back up or restore each profile'),
+              trailing: FilledButton.tonal(
+                onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => Scaffold(
+                              appBar:
+                                  AppBar(title: const Text('Household profiles')),
+                              body: const ProfilesScreen(),
+                            ))),
+                child: const Text('Manage'),
+              ),
+            ),
+          ),
+        ],
         kSectionGap,
         const SectionHeader('Data', icon: Icons.storage_outlined),
         Card(

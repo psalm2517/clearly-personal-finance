@@ -7,7 +7,6 @@ import '../main.dart';
 import '../util/money.dart';
 import '../widgets/add_transaction.dart';
 import '../widgets/common.dart';
-import '../widgets/sankey_chart.dart';
 
 const _monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -55,8 +54,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           repo.watchSplitsByEntry(profileId: profileId),
           repo.watchBillsPaidThisMonthCents(
               profileId: profileId, month: _month),
-          repo.watchRealMoneyMovementsForMonth(
-              profileId: profileId, month: _month),
           repo.watchTransferTargetTotalsForMonth(
               profileId: profileId, month: _month),
         ]),
@@ -71,8 +68,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
           final splitsByEntry =
               snap.data![8] as Map<int, List<TransactionSplit>>;
           final billsPaid = snap.data![9] as int;
-          final realMovements = snap.data![10] as Map<String, int>;
-          final transferTotals = snap.data![11] as Map<String, int>;
+          final transferTotals = snap.data![10] as Map<String, int>;
           return _body(
               context,
               entries,
@@ -80,7 +76,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               expectedIncome,
               billsDue,
               billsPaid,
-              realMovements,
               transferTotals,
               setAside, tagsByEntry, splitsByEntry, scheme);
         },
@@ -95,7 +90,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       int expectedIncomeCents,
       int billsDueCents,
       int billsPaidCents,
-      Map<String, int> realMovements,
       Map<String, int> transferTotals,
       int setAsideCents,
       Map<int, List<String>> tagsByEntry,
@@ -124,24 +118,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       final map = r.type == EntryType.expense ? spentByCategory : incomeByCategory;
       map[r.category] = (map[r.category] ?? 0) + r.amountCents;
     }
-    // The cash flow chart only counts entries that actually moved cash —
-    // card purchases show up there when the card is paid, not when charged.
-    final cashEntries = entries
-        .where(HomebaseRepository.entryMovesCash)
-        .toList();
-    final cashSpentByCategory = <String, int>{};
-    final cashIncomeByCategory = <String, int>{};
-    for (final r
-        in HomebaseRepository.expandForCategoryTotals(cashEntries, splitsByEntry)) {
-      final map = r.type == EntryType.expense
-          ? cashSpentByCategory
-          : cashIncomeByCategory;
-      map[r.category] = (map[r.category] ?? 0) + r.amountCents;
-    }
-    final cashFlowHasData = cashSpentByCategory.isNotEmpty ||
-        cashIncomeByCategory.isNotEmpty ||
-        realMovements.isNotEmpty;
-
     // Money transferred toward a category counts against its target too — a
     // transfer to an investment account is exactly what an "Invest" target
     // is for, even though it is never a budget entry.
@@ -299,51 +275,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                   ),
                 ),
               ),
-              if (cashFlowHasData) ...[
-                kSectionGap,
-                SectionHeader('Cash flow',
-                    icon: Icons.alt_route,
-                    info: const InfoButton(
-                      title: 'Cash flow',
-                      body: [
-                        'Money that actually moved through your accounts this month. '
-                            'What came in is on the left, and where it went '
-                            'is on the right: spending categories, transfers '
-                            'to your other accounts, and card or loan '
-                            'payments made from an account.',
-                        'Only money that really went somewhere is drawn on '
-                            'the right. If the middle bar is taller than what '
-                            'flows out of it, the difference simply has not '
-                            'been spent or moved, or has not been logged yet. '
-                            'It is not counted as savings.',
-                        'Card purchases are counted when you pay the card, '
-                            'not when you charge it, so the same money is '
-                            'never counted twice. Your card spending by '
-                            'category is still in "Where it went" below.',
-                        'If more went out than came in, the gap shows on the '
-                            'left as a Shortfall: money that came from '
-                            'savings from earlier months or from borrowing, '
-                            'not from this month\'s income.',
-                      ],
-                    )),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SizedBox(
-                      height: 320,
-                      child: IncomeSankeyChart(
-                        incomeByCategory: cashIncomeByCategory,
-                        expenseByCategory: {
-                          ...cashSpentByCategory,
-                          for (final entry in realMovements.entries)
-                            entry.key: (cashSpentByCategory[entry.key] ?? 0) +
-                                entry.value,
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ],
               kSectionGap,
               SectionHeader('Where it went',
                   icon: Icons.donut_small_outlined,

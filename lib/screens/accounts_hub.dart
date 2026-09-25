@@ -8,7 +8,7 @@ import '../widgets/common.dart';
 import 'accounts.dart';
 import 'cards.dart';
 import 'loans.dart';
-import 'transfers.dart';
+import 'goals.dart';
 
 /// Accounts, Cards and Loans used to be three separate sidebar entries.
 /// Grouping them under one "Accounts" destination with tabs cuts down the
@@ -68,7 +68,7 @@ class _AccountsHubScreenState extends State<AccountsHubScreen>
                   Tab(text: 'Cash'),
                   Tab(text: 'Cards'),
                   Tab(text: 'Loans'),
-                  Tab(text: 'Transfers'),
+                  Tab(text: 'Goals'),
                 ],
               ),
             ),
@@ -81,7 +81,7 @@ class _AccountsHubScreenState extends State<AccountsHubScreen>
               AccountsScreen(),
               CardsScreen(),
               LoansScreen(),
-              TransfersScreen(),
+              GoalsScreen(),
             ],
           ),
         ),

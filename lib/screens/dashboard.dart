@@ -8,7 +8,9 @@ import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
 import '../widgets/common.dart';
+import '../widgets/hover_line_chart.dart';
 import 'accounts.dart' show accountIcon, accountTypeColor;
+import 'nav.dart';
 
 /// Two dashboard sections side by side on a wide window instead of always
 /// stacking full-width — this is a desktop-first app with room to spare,
@@ -30,131 +32,6 @@ Widget _dashRow(Widget left, Widget right) {
       );
     },
   );
-}
-
-/// Wraps a line-chart [CustomPainter] with mouse hover: tracks the nearest
-/// data point under the cursor, redraws the painter with a crosshair there
-/// via [painterBuilder], and floats a small value/date tooltip above it.
-class _HoverLineChart extends StatefulWidget {
-  const _HoverLineChart({
-    required this.height,
-    required this.dates,
-    required this.values,
-    required this.painterBuilder,
-  });
-
-  final double height;
-  final List<DateTime> dates;
-  final List<int> values;
-  final CustomPainter Function(int? hoverIndex) painterBuilder;
-
-  @override
-  State<_HoverLineChart> createState() => _HoverLineChartState();
-}
-
-class _HoverLineChartState extends State<_HoverLineChart> {
-  int? _hoverIndex;
-
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  void _updateHover(double localX, double width) {
-    if (widget.dates.length < 2) return;
-    final ratio = (localX / width).clamp(0.0, 1.0);
-    final index = (ratio * (widget.dates.length - 1)).round();
-    if (index == _hoverIndex) return;
-    setState(() => _hoverIndex = index);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (widget.dates.length < 2) {
-      return SizedBox(
-        height: widget.height,
-        width: double.infinity,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: widget.painterBuilder(null),
-        ),
-      );
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final hover = _hoverIndex;
-        // Tooltip x, clamped so it never runs off either edge of the chart.
-        final tooltipWidth = 100.0;
-        final rawX = hover == null
-            ? 0.0
-            : hover / (widget.dates.length - 1) * width;
-        final tooltipLeft =
-            (rawX - tooltipWidth / 2).clamp(0.0, width - tooltipWidth);
-        return MouseRegion(
-          onHover: (event) => _updateHover(event.localPosition.dx, width),
-          onExit: (_) => setState(() => _hoverIndex = null),
-          child: SizedBox(
-            height: widget.height,
-            width: double.infinity,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: widget.painterBuilder(hover),
-                ),
-                if (hover != null)
-                  Positioned(
-                    left: tooltipLeft,
-                    top: -8,
-                    width: tooltipWidth,
-                    child: IgnorePointer(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.25),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              fmtCents(widget.values[hover]),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12),
-                            ),
-                            Text(
-                              '${_months[widget.dates[hover].month - 1]} '
-                              '${widget.dates[hover].day}',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: scheme.onSurfaceVariant),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class DashboardScreen extends ConsumerWidget {
@@ -459,7 +336,7 @@ class DashboardScreen extends ConsumerWidget {
           },
         ),
         kSectionGap,
-        _ProjectedCashBalanceSection(profileId: profileId, scheme: scheme),
+        _CashOutlookCard(profileId: profileId),
         kSectionGap,
         _dashRow(
           StreamBuilder<List<CreditCard>>(
@@ -521,163 +398,6 @@ class DashboardScreen extends ConsumerWidget {
                         children: [
                           for (final c in cards)
                             _utilizationTile(context, c, scheme),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          StreamBuilder<
-            List<({DateTime month, int incomeCents, int expenseCents})>
-          >(
-            stream: repo.watchCashflow(profileId: profileId),
-            builder: (context, snap) {
-              final data = snap.data ?? [];
-              final hasAny = data.any(
-                (d) => d.incomeCents != 0 || d.expenseCents != 0,
-              );
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(
-                    'Income vs spending',
-                    icon: Icons.bar_chart_outlined,
-                    info: InfoButton(
-                      title: 'Income vs spending',
-                      body: [
-                        'Income versus spending for each of the last six '
-                            'months, built from your Budget entries. A card '
-                            'purchase counts as spending when you make it, '
-                            'so this is what you spent, not what left your '
-                            'accounts. The Cash flow chart on the Budget '
-                            'screen is the one that follows the money '
-                            'leaving your accounts.',
-                        'Green bars are income, red bars are expenses. When '
-                            'the red bar is taller than the green one, you '
-                            'spent more than you earned that month.',
-                        'This only counts entries you have logged in Budget — '
-                            'it is not pulled from your bank.',
-                      ],
-                    ),
-                  ),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: hasAny
-                          ? SizedBox(
-                              height: 220,
-                              child: _CashflowChart(
-                                data: data,
-                                income: scheme.primary,
-                                expense: scheme.error,
-                                label: scheme.onSurface,
-                              ),
-                            )
-                          : const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: EmptyState(
-                                icon: Icons.bar_chart_outlined,
-                                title: 'Nothing to compare yet',
-                                message:
-                                    'Add income and expenses in Budget to see '
-                                    'money in versus money out by month.',
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        kSectionGap,
-        _dashRow(
-          StreamBuilder<List<({Bill bill, bool paid})>>(
-            stream: repo.watchBillsForMonth(
-              profileId: profileId,
-              month: DateTime.now(),
-            ),
-            builder: (context, snap) {
-              final rows = snap.data ?? [];
-              final today = DateTime.now();
-              final lastDay = DateTime(today.year, today.month + 1, 0).day;
-              final windowEnd = today.add(const Duration(days: 7));
-              final upcoming = rows.where((r) {
-                if (r.paid) return false;
-                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
-                final due = DateTime(today.year, today.month, day);
-                return !due.isBefore(
-                      DateTime(today.year, today.month, today.day),
-                    ) &&
-                    !due.isAfter(windowEnd);
-              }).toList();
-              final overdue = rows.where((r) {
-                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
-                final due = DateTime(today.year, today.month, day);
-                return !r.paid &&
-                    !r.bill.autopay &&
-                    due.isBefore(DateTime(today.year, today.month, today.day));
-              }).toList();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(
-                    'Bills due this week',
-                    icon: Icons.event_outlined,
-                    info: InfoButton(
-                      title: 'Bills due this week',
-                      body: [
-                        'Any bill whose due day falls in the next seven days, '
-                            'plus anything already overdue and unpaid this '
-                            'month.',
-                        'Paid status is tracked per month, so this clears '
-                            'itself when a new month begins — there is '
-                            'nothing to reset.',
-                        'A bill due on a day later than the current month has '
-                            '(the 31st in February) is treated as due on the '
-                            'last day of that month.',
-                      ],
-                    ),
-                  ),
-                  if (upcoming.isEmpty && overdue.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: EmptyState(
-                          icon: Icons.event_available_outlined,
-                          title: 'Nothing due this week',
-                          message: 'Bills due in the next 7 days appear here.',
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Column(
-                        children: [
-                          for (final r in [...overdue, ...upcoming])
-                            ListTile(
-                              leading: Icon(
-                                overdue.contains(r)
-                                    ? Icons.warning_amber_outlined
-                                    : Icons.schedule,
-                                color: overdue.contains(r)
-                                    ? scheme.error
-                                    : scheme.primary,
-                              ),
-                              title: Text(r.bill.name),
-                              subtitle: Text(
-                                'Due the ${ordinalDay(r.bill.dueDay)} • '
-                                '${r.bill.category}'
-                                '${overdue.contains(r) ? ' • overdue' : ''}',
-                              ),
-                              trailing: Text(
-                                fmtCents(r.bill.amountCents),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -828,6 +548,99 @@ class DashboardScreen extends ConsumerWidget {
             },
           ),
         ),
+        kSectionGap,
+        StreamBuilder<List<({Bill bill, bool paid})>>(
+            stream: repo.watchBillsForMonth(
+              profileId: profileId,
+              month: DateTime.now(),
+            ),
+            builder: (context, snap) {
+              final rows = snap.data ?? [];
+              final today = DateTime.now();
+              final lastDay = DateTime(today.year, today.month + 1, 0).day;
+              final windowEnd = today.add(const Duration(days: 7));
+              final upcoming = rows.where((r) {
+                if (r.paid) return false;
+                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
+                final due = DateTime(today.year, today.month, day);
+                return !due.isBefore(
+                      DateTime(today.year, today.month, today.day),
+                    ) &&
+                    !due.isAfter(windowEnd);
+              }).toList();
+              final overdue = rows.where((r) {
+                final day = r.bill.dueDay > lastDay ? lastDay : r.bill.dueDay;
+                final due = DateTime(today.year, today.month, day);
+                return !r.paid &&
+                    !r.bill.autopay &&
+                    due.isBefore(DateTime(today.year, today.month, today.day));
+              }).toList();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(
+                    'Bills due this week',
+                    icon: Icons.event_outlined,
+                    info: InfoButton(
+                      title: 'Bills due this week',
+                      body: [
+                        'Any bill whose due day falls in the next seven days, '
+                            'plus anything already overdue and unpaid this '
+                            'month.',
+                        'Paid status is tracked per month, so this clears '
+                            'itself when a new month begins — there is '
+                            'nothing to reset.',
+                        'A bill due on a day later than the current month has '
+                            '(the 31st in February) is treated as due on the '
+                            'last day of that month.',
+                      ],
+                    ),
+                  ),
+                  if (upcoming.isEmpty && overdue.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: EmptyState(
+                          icon: Icons.event_available_outlined,
+                          title: 'Nothing due this week',
+                          message: 'Bills due in the next 7 days appear here.',
+                        ),
+                      ),
+                    )
+                  else
+                    Card(
+                      child: Column(
+                        children: [
+                          for (final r in [...overdue, ...upcoming])
+                            ListTile(
+                              leading: Icon(
+                                overdue.contains(r)
+                                    ? Icons.warning_amber_outlined
+                                    : Icons.schedule,
+                                color: overdue.contains(r)
+                                    ? scheme.error
+                                    : scheme.primary,
+                              ),
+                              title: Text(r.bill.name),
+                              subtitle: Text(
+                                'Due the ${ordinalDay(r.bill.dueDay)} • '
+                                '${r.bill.category}'
+                                '${overdue.contains(r) ? ' • overdue' : ''}',
+                              ),
+                              trailing: Text(
+                                fmtCents(r.bill.amountCents),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
       ],
     );
   }
@@ -1079,7 +892,7 @@ class _NetWorthHero extends StatelessWidget {
                 ?.copyWith(color: scheme.onSurfaceVariant),
           )
         else
-          _HoverLineChart(
+          HoverLineChart(
             height: 140,
             dates: [for (final h in history) h.date],
             values: [for (final h in history) h.netWorthCents],
@@ -1274,175 +1087,6 @@ class _AssetsDebtBreakdown extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Grouped income/expense bars by month.
-class _CashflowChart extends StatelessWidget {
-  const _CashflowChart({
-    required this.data,
-    required this.income,
-    required this.expense,
-    required this.label,
-  });
-
-  final List<({DateTime month, int incomeCents, int expenseCents})> data;
-  final Color income;
-  final Color expense;
-  final Color label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _legend(income, 'Income'),
-            const SizedBox(width: 16),
-            _legend(expense, 'Expenses'),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: _CashflowPainter(
-              data: data,
-              income: income,
-              expense: expense,
-              label: label,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _legend(Color color, String text) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-      const SizedBox(width: 6),
-      Text(text, style: TextStyle(fontSize: 12, color: color)),
-    ],
-  );
-}
-
-/// A smooth curve through [points] (Catmull-Rom converted to cubic Beziers),
-/// instead of straight segments — a flowing line rather than an angular
-/// polyline through the same data.
-Path smoothPathThrough(List<Offset> points) {
-  final path = Path();
-  if (points.isEmpty) return path;
-  path.moveTo(points[0].dx, points[0].dy);
-  if (points.length == 1) return path;
-  if (points.length == 2) {
-    path.lineTo(points[1].dx, points[1].dy);
-    return path;
-  }
-  for (var i = 0; i < points.length - 1; i++) {
-    final p0 = i == 0 ? points[i] : points[i - 1];
-    final p1 = points[i];
-    final p2 = points[i + 1];
-    final p3 = i + 2 < points.length ? points[i + 2] : p2;
-    final cp1 = p1 + (p2 - p0) / 6;
-    final cp2 = p2 - (p3 - p1) / 6;
-    path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
-  }
-  return path;
-}
-
-class _CashflowPainter extends CustomPainter {
-  _CashflowPainter({
-    required this.data,
-    required this.income,
-    required this.expense,
-    required this.label,
-  });
-
-  final List<({DateTime month, int incomeCents, int expenseCents})> data;
-  final Color income;
-  final Color expense;
-  final Color label;
-
-  static const _months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
-    final maxValue = data
-        .expand((d) => [d.incomeCents, d.expenseCents])
-        .fold(0, (a, b) => a > b ? a : b);
-    if (maxValue == 0) return;
-
-    const labelHeight = 20.0;
-    final chartHeight = size.height - labelHeight;
-    final slot = size.width / data.length;
-    final barWidth = (slot * 0.30).clamp(6.0, 28.0);
-
-    final gridLine = Paint()
-      ..color = label.withValues(alpha: 0.1)
-      ..strokeWidth = 1;
-    const gridLines = 4;
-    for (var i = 1; i < gridLines; i++) {
-      final y = chartHeight * i / gridLines;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridLine);
-    }
-
-    for (var i = 0; i < data.length; i++) {
-      final centre = slot * i + slot / 2;
-      final d = data[i];
-
-      void bar(int cents, Color color, double offset) {
-        final h = cents / maxValue * (chartHeight - 8);
-        final rect = RRect.fromRectAndCorners(
-          Rect.fromLTWH(centre + offset, chartHeight - h, barWidth, h),
-          topLeft: const Radius.circular(3),
-          topRight: const Radius.circular(3),
-        );
-        canvas.drawRRect(rect, Paint()..color = color);
-      }
-
-      bar(d.incomeCents, income, -barWidth - 2);
-      bar(d.expenseCents, expense, 2);
-
-      final tp = TextPainter(
-        text: TextSpan(
-          text: _months[d.month.month - 1],
-          style: TextStyle(color: label.withValues(alpha: 0.7), fontSize: 11),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset(centre - tp.width / 2, size.height - labelHeight + 4),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_CashflowPainter old) =>
-      old.data != data || old.income != income;
 }
 
 class _ScoreChartPainter extends CustomPainter {
@@ -1675,150 +1319,60 @@ class _NetWorthChartPainter extends CustomPainter {
       old.hoverIndex != hoverIndex;
 }
 
-/// The projected cash balance chart with a 30/60/90-day window toggle and a
-/// warning banner if the projection ever dips negative in that window.
-class _ProjectedCashBalanceSection extends ConsumerStatefulWidget {
-  const _ProjectedCashBalanceSection(
-      {required this.profileId, required this.scheme});
+
+/// A short answer to "will I be okay?": where cash is projected to be in 30
+/// days and whether it dips below zero on the way, with a link to the full
+/// projection on the Cash Flow page.
+class _CashOutlookCard extends ConsumerWidget {
+  const _CashOutlookCard({required this.profileId});
 
   final int profileId;
-  final ColorScheme scheme;
 
   @override
-  ConsumerState<_ProjectedCashBalanceSection> createState() =>
-      _ProjectedCashBalanceSectionState();
-}
-
-class _ProjectedCashBalanceSectionState
-    extends ConsumerState<_ProjectedCashBalanceSection> {
-  int _days = 60;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(repositoryProvider);
-    final scheme = widget.scheme;
+    final scheme = Theme.of(context).colorScheme;
     return FutureBuilder<List<({DateTime date, int balanceCents})>>(
-      future: repo.projectCashFlow(
-          profileId: widget.profileId, days: _days),
+      future: repo.projectCashFlow(profileId: profileId, days: 30),
       builder: (context, snap) {
         final points = snap.data ?? [];
         if (points.isEmpty) return const SizedBox.shrink();
-        final start = points.first.balanceCents;
-        final end = points.last.balanceCents;
         final lowestPoint = points
             .reduce((a, b) => a.balanceCents < b.balanceCents ? a : b);
-        final lowest = lowestPoint.balanceCents;
+        final dips = lowestPoint.balanceCents < 0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: SectionHeader(
-                    'Projected cash balance',
-                    icon: Icons.trending_up,
-                    info: const InfoButton(
-                      title: 'Projected cash balance',
-                      body: [
-                        'A projection of your balance, not your flow — see '
-                            '"Income vs spending" below for money in versus '
-                            'out by month. This is where checking, savings and '
-                            'cash is headed, not a prediction of unplanned '
-                            'spending, just what Clearly already knows is '
-                            'coming: scheduled paychecks, bills, recurring '
-                            'transactions, and any recurring transfer that '
-                            'actually moves money into or out of cash.',
-                        'Investment, retirement and other account types are '
-                            'left out, the same way the Accounts screen '
-                            'splits Cash from Assets — this is about money '
-                            'you can actually spend. A transfer between two '
-                            'cash accounts doesn\'t change this number '
-                            'either, since the total stays the same either '
-                            'way.',
-                        'Card and loan payments, and anything not entered '
-                            'on a schedule, are not included. This gets '
-                            'more accurate the more of your recurring money '
-                            'is set up in Clearly.',
-                      ],
-                    ),
-                  ),
+            const SectionHeader('Cash outlook', icon: Icons.trending_up),
+            Card(
+              color: dips ? scheme.errorContainer : null,
+              child: ListTile(
+                leading: Icon(
+                    dips ? Icons.warning_amber_outlined : Icons.trending_up,
+                    color: dips ? scheme.onErrorContainer : scheme.primary),
+                title: MoneyText(
+                  fmtCents(points.last.balanceCents),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'monospace',
+                        color: dips ? scheme.onErrorContainer : null,
+                      ),
                 ),
-                SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment(value: 30, label: Text('30d')),
-                    ButtonSegment(value: 60, label: Text('60d')),
-                    ButtonSegment(value: 90, label: Text('90d')),
-                  ],
-                  selected: {_days},
-                  onSelectionChanged: (s) => setState(() => _days = s.first),
+                subtitle: Text(
+                  dips
+                      ? 'Projected to go ${fmtCents(lowestPoint.balanceCents)} '
+                          'on ${lowestPoint.date.month}/${lowestPoint.date.day} '
+                          'if nothing changes.'
+                      : 'Projected cash in 30 days, from what is already '
+                          'scheduled.',
+                  style: TextStyle(
+                      color: dips ? scheme.onErrorContainer : null),
                 ),
-              ],
-            ),
-            if (lowest < 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Card(
-                  color: scheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.warning_amber_outlined,
-                            color: scheme.onErrorContainer),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Projected to go ${fmtCents(lowest)} on '
-                            '${lowestPoint.date.month}/${lowestPoint.date.day}'
-                            ' if nothing changes.',
-                            style: TextStyle(color: scheme.onErrorContainer),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                trailing: TextButton(
+                  onPressed: () =>
+                      ref.read(navProvider.notifier).state = Dest.cashFlow,
+                  child: const Text('Cash flow'),
                 ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  MoneyText(
-                    fmtCents(end),
-                    style: Theme.of(context).textTheme.headlineMedium
-                        ?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'monospace',
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Pill(
-                    '${end >= start ? '+' : ''}'
-                    '${fmtCents(end - start)} projected over '
-                    '${points.length - 1} days'
-                    '${lowest < 0 ? ' • dips negative' : ''}',
-                    color: lowest < 0
-                        ? scheme.error
-                        : end >= start
-                        ? scheme.primary
-                        : scheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  _HoverLineChart(
-                    height: 140,
-                    dates: [for (final p in points) p.date],
-                    values: [for (final p in points) p.balanceCents],
-                    painterBuilder: (hover) => _ProjectionChartPainter(
-                      points: points,
-                      line: scheme.primary,
-                      negative: scheme.error,
-                      grid: scheme.outline,
-                      hoverIndex: hover,
-                    ),
-                  ),
-                ],
               ),
             ),
           ],
@@ -1826,143 +1380,4 @@ class _ProjectedCashBalanceSectionState
       },
     );
   }
-}
-
-/// A forward-looking cash balance line — same visual language as the net
-/// worth chart (grid, dashed zero baseline, smooth curve, soft fill) so the
-/// two read as one family rather than two unrelated widgets.
-class _ProjectionChartPainter extends CustomPainter {
-  _ProjectionChartPainter({
-    required this.points,
-    required this.line,
-    required this.negative,
-    required this.grid,
-    this.hoverIndex,
-  });
-
-  final List<({DateTime date, int balanceCents})> points;
-  final Color line;
-  final Color negative;
-  final Color grid;
-  final int? hoverIndex;
-
-  static const _months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-    const labelHeight = 20.0;
-    final chartHeight = size.height - labelHeight;
-
-    final values = points.map((p) => p.balanceCents).toList();
-    var minValue = values.reduce((a, b) => a < b ? a : b);
-    var maxValue = values.reduce((a, b) => a > b ? a : b);
-    if (minValue > 0) minValue = 0;
-    if (maxValue < 0) maxValue = 0;
-    final range = (maxValue - minValue) == 0 ? 1 : (maxValue - minValue);
-
-    double yFor(int cents) =>
-        chartHeight - ((cents - minValue) / range) * (chartHeight - 8) - 4;
-    double xFor(int i) => i * size.width / (values.length - 1);
-
-    final gridLine = Paint()
-      ..color = grid.withValues(alpha: 0.35)
-      ..strokeWidth = 1;
-    const rows = 4;
-    for (var i = 1; i < rows; i++) {
-      final y = chartHeight * i / rows;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridLine);
-    }
-    const columns = 8;
-    for (var i = 1; i < columns; i++) {
-      final x = size.width * i / columns;
-      canvas.drawLine(Offset(x, 0), Offset(x, chartHeight), gridLine);
-    }
-
-    final zeroY = yFor(0);
-    final dash = Paint()
-      ..color = grid.withValues(alpha: 0.6)
-      ..strokeWidth = 1;
-    for (var x = 0.0; x < size.width; x += 8) {
-      canvas.drawLine(Offset(x, zeroY), Offset(x + 4, zeroY), dash);
-    }
-
-    final offsets = [
-      for (var i = 0; i < values.length; i++) Offset(xFor(i), yFor(values[i])),
-    ];
-    final path = smoothPathThrough(offsets);
-
-    final ending = values.last >= values.first ? line : negative;
-    final fill = Path.from(path)
-      ..lineTo(xFor(values.length - 1), zeroY)
-      ..lineTo(xFor(0), zeroY)
-      ..close();
-    canvas.drawPath(fill, Paint()..color = ending.withValues(alpha: 0.12));
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = ending
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke,
-    );
-
-    canvas.drawCircle(
-      Offset(xFor(values.length - 1), yFor(values.last)),
-      4,
-      Paint()..color = ending,
-    );
-
-    if (hoverIndex != null && hoverIndex! < values.length) {
-      final hx = xFor(hoverIndex!);
-      final hy = yFor(values[hoverIndex!]);
-      canvas.drawLine(
-        Offset(hx, 0),
-        Offset(hx, chartHeight),
-        Paint()
-          ..color = grid.withValues(alpha: 0.6)
-          ..strokeWidth = 1,
-      );
-      canvas.drawCircle(Offset(hx, hy), 5, Paint()..color = grid);
-      canvas.drawCircle(Offset(hx, hy), 3, Paint()..color = ending);
-    }
-
-    void drawText(String text, Offset at, {bool right = false}) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(color: grid, fontSize: 11),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, at - (right ? Offset(tp.width, 0) : Offset.zero));
-    }
-
-    final lastDate = points.last.date;
-    drawText('Today', Offset(0, size.height - labelHeight + 4));
-    drawText(
-      '${_months[lastDate.month - 1]} ${lastDate.day}',
-      Offset(size.width, size.height - labelHeight + 4),
-      right: true,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_ProjectionChartPainter old) =>
-      old.points != points ||
-      old.line != line ||
-      old.hoverIndex != hoverIndex;
 }
