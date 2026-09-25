@@ -14,7 +14,7 @@
 __Personal finance shouldn't be complicated, and knowing your financial health
 shouldn't cost you $15 a month.__ 
 
-Clearly is a personal finance tracker for a
+Clearly is a personal finance tracker that supports a
 household, built for the desktop. Everything stays on your own machine:
 there is no account to make, no server, and nothing is uploaded anywhere.
 
