@@ -532,7 +532,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 21;
+  int get schemaVersion => 22;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -704,6 +704,23 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(recurringTransactionLogs);
             await m.addColumn(
                 budgetEntries, budgetEntries.sourceRecurringTransactionLogId);
+          }
+          if (from < 22) {
+            // A bill paid with a card used to mirror into an entry with no
+            // link to that card at all. Backfill it from the bill's current
+            // payment source — the same assumption every other reversal of a
+            // bill payment already makes.
+            await customStatement(
+              'UPDATE budget_entries SET card_id = ('
+              'SELECT b.payment_source_id FROM bill_payments bp '
+              'JOIN bills b ON b.id = bp.bill_id '
+              'WHERE bp.id = budget_entries.source_bill_payment_id) '
+              'WHERE card_id IS NULL AND source_bill_payment_id IN ('
+              'SELECT bp.id FROM bill_payments bp '
+              'JOIN bills b ON b.id = bp.bill_id '
+              "WHERE b.payment_source_type = 'card' "
+              'AND b.payment_source_id IS NOT NULL)',
+            );
           }
         },
         beforeOpen: (details) async {

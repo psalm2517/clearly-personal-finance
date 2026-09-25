@@ -284,6 +284,35 @@ void main() {
     expect(points.last.balanceCents, 30000);
   });
 
+  test('a bill already paid from an account is not subtracted again on its '
+      'due date', () async {
+    final checking = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId,
+        name: 'Checking',
+        type: AccountType.checking,
+        balanceCents: const Value(100000)));
+    final due = daysFromNow(3);
+    final bill = await repo.upsertBill(BillsCompanion.insert(
+      profileId: profileId,
+      name: 'Phone',
+      amountCents: 8000,
+      dueDay: due.day,
+      paymentSourceType: const Value(PaymentSourceType.account),
+      paymentSourceId: Value(checking),
+    ));
+    // Paid early: the account balance already dropped by $80.
+    await repo.setBillPaid(
+        profileId: profileId,
+        billId: bill,
+        month: DateTime(due.year, due.month),
+        paid: true);
+
+    final points = await repo.projectCashFlow(profileId: profileId, days: 5);
+
+    expect(points.last.balanceCents, 92000,
+        reason: 'the \$80 is already out of the starting balance');
+  });
+
   test('projection is per profile', () async {
     final other =
         await repo.createProfile(ProfilesCompanion.insert(name: 'Mom'));

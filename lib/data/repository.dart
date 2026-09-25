@@ -127,6 +127,22 @@ class HomebaseRepository {
     });
   }
 
+  /// Insert-or-update that returns the id of the row actually written.
+  ///
+  /// Not insertOnConflictUpdate: when that takes its update branch (editing
+  /// an existing row) the id it returns is last_insert_rowid(), which an
+  /// UPDATE never changes — so it comes back as whatever unrelated row was
+  /// last inserted on the connection. Anything that then looks the row up by
+  /// that id either grabs the wrong row or throws "No element". Drift's own
+  /// docs point at insertReturning for exactly this reason.
+  Future<int> _upsertId<T extends Table, D extends DataClass>(
+      TableInfo<T, D> table, Insertable<D> entry) async {
+    final row = await _db
+        .into(table)
+        .insertReturning(entry, onConflict: DoUpdate((_) => entry));
+    return (row as dynamic).id as int;
+  }
+
   // ---- Accounts ----
 
   Stream<List<Account>> watchAccounts({required int profileId}) =>
@@ -402,7 +418,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertCard(CreditCardsCompanion entry) async {
-    final id = await _db.into(_db.creditCards).insertOnConflictUpdate(entry);
+    final id = await _upsertId(_db.creditCards, entry);
     await recordNetWorthSnapshot(profileId: entry.profileId.value);
     return id;
   }
@@ -448,7 +464,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertLoan(LoansCompanion entry) async {
-    final id = await _db.into(_db.loans).insertOnConflictUpdate(entry);
+    final id = await _upsertId(_db.loans, entry);
     await recordNetWorthSnapshot(profileId: entry.profileId.value);
     return id;
   }
@@ -474,7 +490,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertBill(BillsCompanion entry) =>
-      _db.into(_db.bills).insertOnConflictUpdate(entry);
+      _upsertId(_db.bills, entry);
 
   /// Whether [bill] actually comes due in the given month.
   static bool billFallsIn(Bill bill, DateTime month) {
@@ -633,10 +649,14 @@ class HomebaseRepository {
           category: Value(bill.category),
           description: Value(bill.name),
           sourceBillPaymentId: Value(payment.id),
-          // BudgetEntries only links to Accounts, not cards, so a card
-          // payment source has nothing to mirror here — the bill itself
-          // still remembers it.
+          // Carry the payment source onto the entry, so a bill charged to a
+          // card shows up in that card's history, the register's source
+          // column and exports, and is recognisably a card charge (not cash
+          // leaving an account) everywhere.
           accountId: bill.paymentSourceType == PaymentSourceType.account
+              ? Value(bill.paymentSourceId)
+              : const Value.absent(),
+          cardId: bill.paymentSourceType == PaymentSourceType.card
               ? Value(bill.paymentSourceId)
               : const Value.absent(),
         ));
@@ -864,7 +884,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertGoal(GoalsCompanion entry) =>
-      _db.into(_db.goals).insertOnConflictUpdate(entry);
+      _upsertId(_db.goals, entry);
 
   Future<int> deleteGoal({required int profileId, required int id}) =>
       (_db.delete(_db.goals)
@@ -1406,7 +1426,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertRule(CategoryRulesCompanion entry) =>
-      _db.into(_db.categoryRules).insertOnConflictUpdate(entry);
+      _upsertId(_db.categoryRules, entry);
 
   Future<int> deleteRule({required int profileId, required int id}) =>
       (_db.delete(_db.categoryRules)
@@ -1452,7 +1472,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertSchedule(PaycheckSchedulesCompanion entry) =>
-      _db.into(_db.paycheckSchedules).insertOnConflictUpdate(entry);
+      _upsertId(_db.paycheckSchedules, entry);
 
   /// Removes a schedule. Paychecks it already produced are kept — money you
   /// were actually paid is history, not a detail of the schedule — but they
@@ -1691,7 +1711,7 @@ class HomebaseRepository {
   /// Budget screen's totals include it without you re-entering the amount;
   /// un-marking it removes that entry again.
   Future<int> upsertPaycheck(PaychecksCompanion entry) async {
-    final id = await _db.into(_db.paychecks).insertOnConflictUpdate(entry);
+    final id = await _upsertId(_db.paychecks, entry);
     final paycheck =
         await (_db.select(_db.paychecks)..where((p) => p.id.equals(id)))
             .getSingle();
@@ -1787,7 +1807,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertAllocation(PaycheckAllocationsCompanion entry) =>
-      _db.into(_db.paycheckAllocations).insertOnConflictUpdate(entry);
+      _upsertId(_db.paycheckAllocations, entry);
 
   Future<int> deleteAllocation({required int profileId, required int id}) =>
       (_db.delete(_db.paycheckAllocations)
@@ -1875,7 +1895,7 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertRecurringTransfer(RecurringTransfersCompanion entry) =>
-      _db.into(_db.recurringTransfers).insertOnConflictUpdate(entry);
+      _upsertId(_db.recurringTransfers, entry);
 
   Future<int> deleteRecurringTransfer(
           {required int profileId, required int id}) =>
@@ -2229,6 +2249,21 @@ class HomebaseRepository {
 
   // ---- Projected cash balance ----
 
+  /// Which bill/month pairs already have a payment recorded, as
+  /// "billId:year-month" keys — a paid bill is done, so neither the
+  /// projection nor the Upcoming list should count it as still to come.
+  Future<Set<String>> _paidBillPeriods(int profileId) async {
+    final rows = await (_db.select(_db.billPayments)
+          ..where((p) => p.profileId.equals(profileId)))
+        .get();
+    return {
+      for (final r in rows) _billPeriodKey(r.billId, r.periodStart),
+    };
+  }
+
+  static String _billPeriodKey(int billId, DateTime month) =>
+      '$billId:${month.year}-${month.month}';
+
   /// A day-by-day projection of total cash (checking, savings and cash
   /// accounts — the money you can actually spend) starting from today's
   /// real balance, walking forward using what is already scheduled:
@@ -2272,12 +2307,20 @@ class HomebaseRepository {
     }
 
     final bills = await watchBills(profileId: profileId).first;
+    final paidPeriods = await _paidBillPeriods(profileId);
     var month = DateTime(today.year, today.month);
     while (!month.isAfter(end)) {
       for (final bill in bills) {
         if (!billFallsIn(bill, month)) continue;
         final date = dayInMonth(month.year, month.month, bill.dueDay);
         if (date.isBefore(today) || date.isAfter(end)) continue;
+        // Paying a bill from an account already took the money off that
+        // balance (the projection's starting point), so counting it again
+        // on its due date would take it off twice.
+        if (bill.paymentSourceType == PaymentSourceType.account &&
+            paidPeriods.contains(_billPeriodKey(bill.id, month))) {
+          continue;
+        }
         deltas[date] = (deltas[date] ?? 0) - bill.amountCents;
       }
       month = DateTime(month.year, month.month + 1);
@@ -2342,12 +2385,15 @@ class HomebaseRepository {
     final items = <UpcomingItem>[];
 
     final bills = await watchBills(profileId: profileId).first;
+    final paidPeriods = await _paidBillPeriods(profileId);
     var month = DateTime(today.year, today.month);
     while (!month.isAfter(end)) {
       for (final bill in bills) {
         if (!billFallsIn(bill, month)) continue;
         final date = dayInMonth(month.year, month.month, bill.dueDay);
         if (!inWindow(date)) continue;
+        // Already paid — not "upcoming" any more.
+        if (paidPeriods.contains(_billPeriodKey(bill.id, month))) continue;
         items.add((
           date: date,
           label: bill.name,
@@ -2492,29 +2538,10 @@ class HomebaseRepository {
             ..orderBy([(b) => OrderingTerm.desc(b.importedAt)]))
           .watch();
 
-  /// Ids of entries that mirror a bill paid with a card. Those entries carry
-  /// no card link of their own (BudgetEntries only mirrors account sources
-  /// for bills), so without this they look like cash leaving an account
-  /// when the money really only left when the card itself was paid.
-  Stream<Set<int>> watchCardBilledBillEntryIds({required int profileId}) {
-    return _db
-        .customSelect(
-          'SELECT e.id AS id FROM budget_entries e '
-          'JOIN bill_payments bp ON bp.id = e.source_bill_payment_id '
-          'JOIN bills b ON b.id = bp.bill_id '
-          "WHERE e.profile_id = ?1 AND b.payment_source_type = 'card'",
-          variables: [Variable.withInt(profileId)],
-          readsFrom: {_db.budgetEntries, _db.billPayments, _db.bills},
-        )
-        .watch()
-        .map((rows) => {for (final r in rows) r.read<int>('id')});
-  }
-
   /// Whether [entry] actually moved cash. Charging a card doesn't — the
   /// cash leaves later, when the card is paid — so counting both the charge
   /// and the payment would count the same money twice.
-  static bool entryMovesCash(BudgetEntry entry, Set<int> cardBilledEntryIds) =>
-      entry.cardId == null && !cardBilledEntryIds.contains(entry.id);
+  static bool entryMovesCash(BudgetEntry entry) => entry.cardId == null;
 
   /// Whether any entry from this batch has since been split or tagged —
   /// undoing the import would silently take that manual work with it, so

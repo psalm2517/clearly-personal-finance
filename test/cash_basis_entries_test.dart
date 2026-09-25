@@ -40,7 +40,7 @@ void main() {
       cardId: Value(cardId),
     ));
 
-    expect(HomebaseRepository.entryMovesCash((await entries()).single, {}),
+    expect(HomebaseRepository.entryMovesCash((await entries()).single),
         isFalse);
   });
 
@@ -60,24 +60,12 @@ void main() {
     ));
 
     for (final e in await entries()) {
-      expect(HomebaseRepository.entryMovesCash(e, {}), isTrue);
+      expect(HomebaseRepository.entryMovesCash(e), isTrue);
     }
   });
 
-  test('an entry listed as card-billed does not move cash', () async {
-    await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
-      profileId: profileId,
-      date: DateTime(2026, 8, 10),
-      amountCents: 4500,
-      type: EntryType.expense,
-    ));
-    final e = (await entries()).single;
-
-    expect(HomebaseRepository.entryMovesCash(e, {e.id}), isFalse);
-  });
-
-  test('a bill paid with a card is found, one paid from an account is not',
-      () async {
+  test('a bill paid with a card mirrors into an entry carrying that card, one '
+      'paid from an account carries the account', () async {
     final cardBill = await repo.upsertBill(BillsCompanion.insert(
       profileId: profileId,
       name: 'Streaming',
@@ -100,12 +88,20 @@ void main() {
     await repo.setBillPaid(
         profileId: profileId, billId: accountBill, month: month, paid: true);
 
-    final ids = await repo.watchCardBilledBillEntryIds(profileId: profileId).first;
     final all = await entries();
     final streaming = all.firstWhere((e) => e.description == 'Streaming');
     final rent = all.firstWhere((e) => e.description == 'Rent');
 
-    expect(ids, contains(streaming.id));
-    expect(ids, isNot(contains(rent.id)));
+    expect(streaming.cardId, cardId);
+    expect(streaming.accountId, isNull);
+    expect(HomebaseRepository.entryMovesCash(streaming), isFalse);
+    expect(rent.accountId, checkingId);
+    expect(rent.cardId, isNull);
+    expect(HomebaseRepository.entryMovesCash(rent), isTrue);
+
+    final history =
+        await repo.watchCardHistory(profileId: profileId, cardId: cardId).first;
+    expect(history.map((a) => a.label), contains('Streaming'),
+        reason: 'the bill now shows in the card\'s own history');
   });
 }

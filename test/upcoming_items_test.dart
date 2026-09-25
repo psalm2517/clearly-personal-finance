@@ -166,4 +166,26 @@ void main() {
     final sorted = [...dates]..sort();
     expect(dates, sorted);
   });
+
+  test('a bill that is already paid is not listed as upcoming', () async {
+    final due = daysFromNow(5);
+    final bill = await repo.upsertBill(BillsCompanion.insert(
+      profileId: profileId,
+      name: 'Rent',
+      amountCents: 145000,
+      dueDay: due.day,
+    ));
+    await repo.setBillPaid(
+        profileId: profileId,
+        billId: bill,
+        month: DateTime(due.year, due.month),
+        paid: true);
+
+    final items = await repo.upcomingItems(profileId: profileId, days: 30);
+
+    expect(
+        items.where((i) => i.label == 'Rent' &&
+            i.date == DateTime(due.year, due.month, due.day)),
+        isEmpty);
+  });
 }

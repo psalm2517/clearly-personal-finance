@@ -37,6 +37,15 @@ void main() {
         paid_this_month INTEGER NOT NULL DEFAULT 0);
     ''');
     raw.execute('''
+      CREATE TABLE bill_payments (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        bill_id INTEGER NOT NULL REFERENCES bills (id) ON DELETE CASCADE,
+        period_start INTEGER NOT NULL,
+        paid_at INTEGER NOT NULL,
+        UNIQUE (bill_id, period_start));
+    ''');
+    raw.execute('''
       CREATE TABLE accounts (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -265,6 +274,15 @@ void main() {
         category TEXT NOT NULL DEFAULT 'Other');
     ''');
     raw.execute('''
+      CREATE TABLE bill_payments (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        bill_id INTEGER NOT NULL REFERENCES bills (id) ON DELETE CASCADE,
+        period_start INTEGER NOT NULL,
+        paid_at INTEGER NOT NULL,
+        UNIQUE (bill_id, period_start));
+    ''');
+    raw.execute('''
       CREATE TABLE accounts (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -387,6 +405,15 @@ void main() {
         due_month INTEGER NULL,
         due_year INTEGER NULL,
         category TEXT NOT NULL DEFAULT 'Other');
+    """);
+    raw.execute("""
+      CREATE TABLE bill_payments (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        bill_id INTEGER NOT NULL REFERENCES bills (id) ON DELETE CASCADE,
+        period_start INTEGER NOT NULL,
+        paid_at INTEGER NOT NULL,
+        UNIQUE (bill_id, period_start));
     """);
     raw.execute("""
       CREATE TABLE budget_entries (
@@ -537,6 +564,15 @@ void main() {
         category TEXT NOT NULL DEFAULT 'Other');
     """);
     raw.execute("""
+      CREATE TABLE bill_payments (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        bill_id INTEGER NOT NULL REFERENCES bills (id) ON DELETE CASCADE,
+        period_start INTEGER NOT NULL,
+        paid_at INTEGER NOT NULL,
+        UNIQUE (bill_id, period_start));
+    """);
+    raw.execute("""
       CREATE TABLE budget_entries (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -646,6 +682,15 @@ void main() {
         category TEXT NOT NULL DEFAULT 'Other');
     """);
     raw.execute("""
+      CREATE TABLE bill_payments (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        bill_id INTEGER NOT NULL REFERENCES bills (id) ON DELETE CASCADE,
+        period_start INTEGER NOT NULL,
+        paid_at INTEGER NOT NULL,
+        UNIQUE (bill_id, period_start));
+    """);
+    raw.execute("""
       CREATE TABLE budget_entries (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -740,5 +785,57 @@ void main() {
         (await db.select(db.recurringTransactions).get()).single.name,
         'Netflix');
     expect(recurringId, isNonNegative);
+  });
+
+  test('a v21 database backfills the card link on card-paid bill entries',
+      () async {
+    final dir22 = Directory.systemTemp.createTempSync('homebase_v21');
+    addTearDown(() => dir22.deleteSync(recursive: true));
+    final f = File('${dir22.path}/homebase.sqlite');
+
+    var db = AppDatabase.forTesting(NativeDatabase(f));
+    var repo = HomebaseRepository(db);
+    final profile = await repo.createProfile(
+        ProfilesCompanion.insert(name: 'Owner', isAdmin: const Value(true)));
+    final card = await repo.upsertCard(CreditCardsCompanion.insert(
+        profileId: profile, name: 'Visa', creditLimitCents: 100000));
+    final account = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profile, name: 'Checking', type: AccountType.checking));
+    final cardBill = await repo.upsertBill(BillsCompanion.insert(
+        profileId: profile,
+        name: 'Streaming',
+        amountCents: 1599,
+        dueDay: 10,
+        paymentSourceType: const Value(PaymentSourceType.card),
+        paymentSourceId: Value(card)));
+    final accountBill = await repo.upsertBill(BillsCompanion.insert(
+        profileId: profile,
+        name: 'Rent',
+        amountCents: 100000,
+        dueDay: 1,
+        paymentSourceType: const Value(PaymentSourceType.account),
+        paymentSourceId: Value(account)));
+    final month = DateTime(2026, 8);
+    await repo.setBillPaid(
+        profileId: profile, billId: cardBill, month: month, paid: true);
+    await repo.setBillPaid(
+        profileId: profile, billId: accountBill, month: month, paid: true);
+    await db.close();
+
+    // Put it back the way a v21 database had it: the card-paid bill's entry
+    // with no card link.
+    final raw = sqlite3.open(f.path);
+    raw.execute('UPDATE budget_entries SET card_id = NULL;');
+    raw.execute('PRAGMA user_version = 21;');
+    raw.close();
+
+    db = AppDatabase.forTesting(NativeDatabase(f));
+    addTearDown(db.close);
+    final entries = await db.select(db.budgetEntries).get();
+    final streaming = entries.firstWhere((e) => e.description == 'Streaming');
+    final rent = entries.firstWhere((e) => e.description == 'Rent');
+
+    expect(streaming.cardId, card);
+    expect(rent.cardId, isNull, reason: 'an account-paid bill is untouched');
   });
 }

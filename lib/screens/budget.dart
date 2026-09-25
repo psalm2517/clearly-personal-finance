@@ -63,7 +63,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               profileId: profileId, month: _month),
           repo.watchRealMoneyMovementsForMonth(
               profileId: profileId, month: _month),
-          repo.watchCardBilledBillEntryIds(profileId: profileId),
         ]),
         builder: (context, snap) {
           if (!snap.hasData) return const SizedBox.shrink();
@@ -77,7 +76,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               snap.data![8] as Map<int, List<TransactionSplit>>;
           final billsPaid = snap.data![9] as int;
           final realMovements = snap.data![10] as Map<String, int>;
-          final cardBilledEntryIds = snap.data![11] as Set<int>;
           return _body(
               context,
               entries,
@@ -86,7 +84,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               billsDue,
               billsPaid,
               realMovements,
-              cardBilledEntryIds,
               setAside, tagsByEntry, splitsByEntry, scheme);
         },
       ),
@@ -101,7 +98,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       int billsDueCents,
       int billsPaidCents,
       Map<String, int> realMovements,
-      Set<int> cardBilledEntryIds,
       int setAsideCents,
       Map<int, List<String>> tagsByEntry,
       Map<int, List<TransactionSplit>> splitsByEntry,
@@ -132,7 +128,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     // The cash flow chart only counts entries that actually moved cash —
     // card purchases show up there when the card is paid, not when charged.
     final cashEntries = entries
-        .where((e) => HomebaseRepository.entryMovesCash(e, cardBilledEntryIds))
+        .where(HomebaseRepository.entryMovesCash)
         .toList();
     final cashSpentByCategory = <String, int>{};
     final cashIncomeByCategory = <String, int>{};
