@@ -146,7 +146,8 @@ class _SankeyPainter extends CustomPainter {
   final Color mutedColor;
 
   static const _barWidth = 10.0;
-  static const _nodeGap = 10.0;
+  static const _sourceGap = 4.0;
+  static const _maxOutGap = 8.0;
   static const _minLabelHeight = 16.0;
 
   @override
@@ -165,19 +166,25 @@ class _SankeyPainter extends CustomPainter {
     };
     final baseTotal = columnTotals[1] ?? 0;
 
-    // One shared scale (pixels per cent) so a link's thickness always
-    // matches the node it meets on either end — the tightest-packed column
-    // (the most nodes, so the most gaps eating into the height) decides it.
-    var scale = double.infinity;
-    for (final indices in byColumn.values) {
-      final total = indices.fold<int>(0, (s, i) => s + nodes[i].amountCents);
-      if (total <= 0) continue;
-      final usable = size.height - _nodeGap * (indices.length - 1);
-      if (usable <= 0) continue;
-      final s = usable / total;
-      if (s < scale) scale = s;
-    }
+    // One scale (pixels per cent) for the whole chart, set by the middle bar:
+    // it is the money in, so the left column (plus its small gaps) fills the
+    // height and every other bar is drawn against the same scale.
+    final leftIndices = byColumn[0] ?? const <int>[];
+    final rightIndices = byColumn[2] ?? const <int>[];
+    final midTotal = columnTotals[1] ?? 0;
+    if (midTotal <= 0) return;
+    final scale = (size.height - _sourceGap * (leftIndices.length - 1).clamp(0, 99)) / midTotal;
     if (!scale.isFinite || scale <= 0) return;
+
+    // The outflows stack down the middle bar's right edge with gaps between
+    // them, so they can only fit as far as the bar has room to spare (what
+    // hasn't been spent). Gaps shrink to fit rather than pushing a ribbon
+    // past the bottom of the bar.
+    final rightTotal = columnTotals[2] ?? 0;
+    final spare = (midTotal - rightTotal) * scale;
+    final outGap = rightIndices.length > 1
+        ? (spare / (rightIndices.length - 1)).clamp(0.0, _maxOutGap)
+        : 0.0;
 
     final columnX = {
       0: 0.0,
@@ -189,10 +196,11 @@ class _SankeyPainter extends CustomPainter {
     for (final entry in byColumn.entries) {
       var y = 0.0;
       final x = columnX[entry.key]!;
+      final gap = entry.key == 2 ? outGap : entry.key == 0 ? _sourceGap : 0.0;
       for (final i in entry.value) {
         final h = nodes[i].amountCents * scale;
         rects[i] = Rect.fromLTWH(x, y, _barWidth, h);
-        y += h + _nodeGap;
+        y += h + gap;
       }
     }
 
@@ -202,7 +210,12 @@ class _SankeyPainter extends CustomPainter {
       final srcRect = rects[link.fromNode];
       final dstRect = rects[link.toNode];
       final h = link.amountCents * scale;
-      final srcTop = srcRect.top + outCursor[link.fromNode];
+      // An outflow leaves the middle bar level with the bar it arrives at,
+      // so it runs straight across instead of sloping; inflows land in order
+      // down the middle bar.
+      final srcTop = nodes[link.fromNode].column == 1
+          ? dstRect.top
+          : srcRect.top + outCursor[link.fromNode];
       final dstTop = dstRect.top + inCursor[link.toNode];
       outCursor[link.fromNode] += h;
       inCursor[link.toNode] += h;
