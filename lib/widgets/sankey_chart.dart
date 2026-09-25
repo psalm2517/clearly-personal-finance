@@ -33,20 +33,23 @@ class _SankeyLink {
   final Color color;
 }
 
-/// A three-column income → categories flow chart: what came in on the
-/// left, funneling through a single income total, splitting across
-/// spending categories (and Savings, for whatever is left) on the right.
+/// A three-column money flow chart: what came in on the left, funneling
+/// through a single total, splitting across everything it went to on the
+/// right.
+///
+/// It balances by construction: whatever is left over becomes a "Savings"
+/// node on the right, and if more went out than came in, the gap becomes a
+/// "Shortfall" source on the left, so a flow never leaves a bar bigger than
+/// the bar it left from.
 class IncomeSankeyChart extends StatelessWidget {
   const IncomeSankeyChart({
     super.key,
     required this.incomeByCategory,
     required this.expenseByCategory,
-    required this.leftoverCents,
   });
 
   final Map<String, int> incomeByCategory;
   final Map<String, int> expenseByCategory;
-  final int leftoverCents;
 
   @override
   Widget build(BuildContext context) {
@@ -57,13 +60,16 @@ class IncomeSankeyChart extends StatelessWidget {
         expenseByCategory.entries.where((e) => e.value > 0).toList()
           ..sort((a, b) => b.value.compareTo(a.value));
     final totalIncome = income.fold(0, (s, e) => s + e.value);
+    final totalOut = expense.fold(0, (s, e) => s + e.value);
+    final leftoverCents = totalIncome - totalOut;
+    final shortfallCents = leftoverCents < 0 ? -leftoverCents : 0;
 
-    if (totalIncome == 0) {
+    if (totalIncome == 0 && totalOut == 0) {
       return const EmptyState(
         icon: Icons.alt_route,
-        title: 'No income logged yet',
-        message: 'The flow chart needs at least one income entry to work '
-            'from.',
+        title: 'Nothing to show yet',
+        message: 'The flow chart needs at least one income or spending '
+            'entry to work from.',
       );
     }
 
@@ -75,10 +81,17 @@ class IncomeSankeyChart extends StatelessWidget {
       nodes.add(_SankeyNode(
           label: e.key, amountCents: e.value, color: color, column: 0));
     }
+    if (shortfallCents > 0) {
+      nodes.add(_SankeyNode(
+          label: 'Shortfall',
+          amountCents: shortfallCents,
+          color: scheme.error,
+          column: 0));
+    }
     final incomeNodeIndex = nodes.length;
     nodes.add(_SankeyNode(
-        label: 'Income',
-        amountCents: totalIncome,
+        label: shortfallCents > 0 ? 'Money in' : 'Income',
+        amountCents: totalIncome + shortfallCents,
         color: scheme.primary,
         column: 1));
     for (var i = 0; i < income.length; i++) {
@@ -87,6 +100,13 @@ class IncomeSankeyChart extends StatelessWidget {
           toNode: incomeNodeIndex,
           amountCents: income[i].value,
           color: categoryColor(context, income[i].key)));
+    }
+    if (shortfallCents > 0) {
+      links.add(_SankeyLink(
+          fromNode: income.length,
+          toNode: incomeNodeIndex,
+          amountCents: shortfallCents,
+          color: scheme.error));
     }
 
     for (final e in expense) {

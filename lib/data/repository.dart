@@ -2492,6 +2492,30 @@ class HomebaseRepository {
             ..orderBy([(b) => OrderingTerm.desc(b.importedAt)]))
           .watch();
 
+  /// Ids of entries that mirror a bill paid with a card. Those entries carry
+  /// no card link of their own (BudgetEntries only mirrors account sources
+  /// for bills), so without this they look like cash leaving an account
+  /// when the money really only left when the card itself was paid.
+  Stream<Set<int>> watchCardBilledBillEntryIds({required int profileId}) {
+    return _db
+        .customSelect(
+          'SELECT e.id AS id FROM budget_entries e '
+          'JOIN bill_payments bp ON bp.id = e.source_bill_payment_id '
+          'JOIN bills b ON b.id = bp.bill_id '
+          "WHERE e.profile_id = ?1 AND b.payment_source_type = 'card'",
+          variables: [Variable.withInt(profileId)],
+          readsFrom: {_db.budgetEntries, _db.billPayments, _db.bills},
+        )
+        .watch()
+        .map((rows) => {for (final r in rows) r.read<int>('id')});
+  }
+
+  /// Whether [entry] actually moved cash. Charging a card doesn't — the
+  /// cash leaves later, when the card is paid — so counting both the charge
+  /// and the payment would count the same money twice.
+  static bool entryMovesCash(BudgetEntry entry, Set<int> cardBilledEntryIds) =>
+      entry.cardId == null && !cardBilledEntryIds.contains(entry.id);
+
   /// Whether any entry from this batch has since been split or tagged —
   /// undoing the import would silently take that manual work with it, so
   /// the UI uses this to warn before deleting.
