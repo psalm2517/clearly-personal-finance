@@ -41,4 +41,20 @@ void main() {
     )));
     expect(find.text('Nothing to show yet'), findsOneWidget);
   });
+
+  testWidgets('many thin bars next to big ones build without error',
+      (tester) async {
+    await tester.pumpWidget(_host(const IncomeSankeyChart(
+      incomeByCategory: {'Work': 78578, 'Other': 5000},
+      expenseByCategory: {
+        'Card payment - A': 19272,
+        'Klarna': 15978,
+        'Transfer': 15000,
+        'BNPL': 2814,
+        'FanDuel': 1000,
+        'Tiny': 50,
+      },
+    )));
+    expect(tester.takeException(), isNull);
+  });
 }

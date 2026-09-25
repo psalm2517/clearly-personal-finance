@@ -233,6 +233,12 @@ class _SankeyPainter extends CustomPainter {
       canvas.drawPath(path, Paint()..color = link.color.withValues(alpha: 0.32));
     }
 
+    // Every node with any height gets a label. A bar too short for the
+    // usual two-line label gets a compact one-line label instead of none —
+    // otherwise the smallest amounts (often exactly the ones worth
+    // noticing, like what was left over) are silently unlabeled.
+    final labels = <int, TextPainter>{};
+    final labelY = <int, double>{};
     for (var i = 0; i < nodes.length; i++) {
       final n = nodes[i];
       final rect = rects[i];
@@ -241,32 +247,61 @@ class _SankeyPainter extends CustomPainter {
         RRect.fromRectAndRadius(rect, const Radius.circular(2)),
         Paint()..color = n.color,
       );
-      if (rect.height < _minLabelHeight) continue;
 
       final columnTotal = columnTotals[n.column] ?? 0;
       final pct = columnTotal == 0 ? 0.0 : n.amountCents / columnTotal * 100;
-      final label = TextPainter(
+      final amount = '${fmtCents(n.amountCents)} (${pct.toStringAsFixed(0)}%)';
+      final compact = rect.height < _minLabelHeight;
+      labels[i] = TextPainter(
         text: TextSpan(children: [
           TextSpan(
             text: n.label,
             style: TextStyle(
-                color: textColor, fontSize: 12, fontWeight: FontWeight.w600),
+                color: textColor,
+                fontSize: compact ? 11 : 12,
+                fontWeight: FontWeight.w600),
           ),
           TextSpan(
-            text: '\n${fmtCents(n.amountCents)} (${pct.toStringAsFixed(0)}%)',
+            text: compact ? '  $amount' : '\n$amount',
             style: TextStyle(color: mutedColor, fontSize: 11),
           ),
         ]),
         textDirection: TextDirection.ltr,
-        maxLines: 2,
+        maxLines: compact ? 1 : 2,
       )..layout(maxWidth: size.width / 2 - 20);
+      labelY[i] = rect.top + rect.height / 2 - labels[i]!.height / 2;
+    }
 
-      final labelY =
-          (rect.top + rect.height / 2 - label.height / 2).clamp(0.0, size.height - label.height);
-      if (n.column == 2) {
-        label.paint(canvas, Offset(rect.left - 8 - label.width, labelY));
+    // Neighbouring thin bars would put their labels on top of each other, so
+    // within a column push labels apart top to bottom, then pull the run
+    // back up if that pushed the last one off the bottom edge.
+    const labelGap = 2.0;
+    for (final indices in byColumn.values) {
+      final shown = indices.where(labels.containsKey).toList()
+        ..sort((a, b) => rects[a].top.compareTo(rects[b].top));
+      var cursor = 0.0;
+      for (final i in shown) {
+        final y = labelY[i]!.clamp(0.0, double.infinity);
+        labelY[i] = y < cursor ? cursor : y;
+        cursor = labelY[i]! + labels[i]!.height + labelGap;
+      }
+      var limit = size.height;
+      for (final i in shown.reversed) {
+        final maxY = limit - labels[i]!.height;
+        if (labelY[i]! > maxY) labelY[i] = maxY;
+        limit = labelY[i]! - labelGap;
+      }
+    }
+
+    for (final entry in labels.entries) {
+      final i = entry.key;
+      final label = entry.value;
+      final rect = rects[i];
+      final y = labelY[i]!;
+      if (nodes[i].column == 2) {
+        label.paint(canvas, Offset(rect.left - 8 - label.width, y));
       } else {
-        label.paint(canvas, Offset(rect.right + 8, labelY));
+        label.paint(canvas, Offset(rect.right + 8, y));
       }
     }
   }
