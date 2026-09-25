@@ -317,12 +317,16 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                             'is on the right: spending categories, transfers '
                             'to your other accounts, and card or loan '
                             'payments made from an account.',
+                        'Only money that really went somewhere is drawn on '
+                            'the right. If the middle bar is taller than what '
+                            'flows out of it, the difference simply has not '
+                            'been spent or moved, or has not been logged yet. '
+                            'It is not counted as savings.',
                         'Card purchases are counted when you pay the card, '
                             'not when you charge it, so the same money is '
                             'never counted twice. Your card spending by '
                             'category is still in "Where it went" below.',
-                        'Whatever is left over flows out as Savings. If '
-                            'more went out than came in, the gap shows on the '
+                        'If more went out than came in, the gap shows on the '
                             'left as a Shortfall: money that came from '
                             'savings from earlier months or from borrowing, '
                             'not from this month\'s income.',

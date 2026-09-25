@@ -34,13 +34,15 @@ class _SankeyLink {
 }
 
 /// A three-column money flow chart: what came in on the left, funneling
-/// through a single total, splitting across everything it went to on the
-/// right.
+/// through a single total, splitting across everything that actually went
+/// out on the right.
 ///
-/// It balances by construction: whatever is left over becomes a "Savings"
-/// node on the right, and if more went out than came in, the gap becomes a
-/// "Shortfall" source on the left, so a flow never leaves a bar bigger than
-/// the bar it left from.
+/// The right side only ever shows recorded outflows. Income that hasn't gone
+/// anywhere is simply left as unused length on the middle bar — it is not
+/// turned into a "Savings" bar, because that would be a made-up number that
+/// grows every time income is logged. If more went out than came in, the gap
+/// becomes a "Shortfall" source on the left, so a flow never leaves a bar
+/// bigger than the bar it left from.
 class IncomeSankeyChart extends StatelessWidget {
   const IncomeSankeyChart({
     super.key,
@@ -61,8 +63,7 @@ class IncomeSankeyChart extends StatelessWidget {
           ..sort((a, b) => b.value.compareTo(a.value));
     final totalIncome = income.fold(0, (s, e) => s + e.value);
     final totalOut = expense.fold(0, (s, e) => s + e.value);
-    final leftoverCents = totalIncome - totalOut;
-    final shortfallCents = leftoverCents < 0 ? -leftoverCents : 0;
+    final shortfallCents = totalOut > totalIncome ? totalOut - totalIncome : 0;
 
     if (totalIncome == 0 && totalOut == 0) {
       return const EmptyState(
@@ -119,19 +120,6 @@ class IncomeSankeyChart extends StatelessWidget {
       nodes.add(_SankeyNode(
           label: e.key, amountCents: e.value, color: color, column: 2));
     }
-    if (leftoverCents > 0) {
-      links.add(_SankeyLink(
-          fromNode: incomeNodeIndex,
-          toNode: nodes.length,
-          amountCents: leftoverCents,
-          color: scheme.secondary));
-      nodes.add(_SankeyNode(
-          label: 'Savings',
-          amountCents: leftoverCents,
-          color: scheme.secondary,
-          column: 2));
-    }
-
     return CustomPaint(
       size: Size.infinite,
       painter: _SankeyPainter(
@@ -168,15 +156,14 @@ class _SankeyPainter extends CustomPainter {
       byColumn.putIfAbsent(nodes[i].column, () => []).add(i);
     }
 
-    // Each node's percentage is of its own column's total, not of income —
-    // column 0 is "share of income sources", column 2 is "share of where
-    // it actually went". If spending exceeds income, column 2's shares
-    // still correctly sum to 100%, rather than each being computed against
-    // income and the total silently exceeding it.
+    // Every percentage is of the middle bar (money in), so they mean the same
+    // thing on both sides and never get stretched to add up to 100: income
+    // sources add up to it, outflows add up to whatever share actually left.
     final columnTotals = <int, int>{
       for (final entry in byColumn.entries)
         entry.key: entry.value.fold<int>(0, (s, i) => s + nodes[i].amountCents),
     };
+    final baseTotal = columnTotals[1] ?? 0;
 
     // One shared scale (pixels per cent) so a link's thickness always
     // matches the node it meets on either end — the tightest-packed column
@@ -248,8 +235,7 @@ class _SankeyPainter extends CustomPainter {
         Paint()..color = n.color,
       );
 
-      final columnTotal = columnTotals[n.column] ?? 0;
-      final pct = columnTotal == 0 ? 0.0 : n.amountCents / columnTotal * 100;
+      final pct = baseTotal == 0 ? 0.0 : n.amountCents / baseTotal * 100;
       final amount = '${fmtCents(n.amountCents)} (${pct.toStringAsFixed(0)}%)';
       final compact = rect.height < _minLabelHeight;
       labels[i] = TextPainter(
