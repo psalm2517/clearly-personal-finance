@@ -147,7 +147,7 @@ class _SankeyPainter extends CustomPainter {
 
   static const _barWidth = 10.0;
   static const _sourceGap = 4.0;
-  static const _maxOutGap = 8.0;
+  static const _maxOutGap = 28.0;
   static const _minLabelHeight = 16.0;
 
   @override
@@ -176,10 +176,11 @@ class _SankeyPainter extends CustomPainter {
     final scale = (size.height - _sourceGap * (leftIndices.length - 1).clamp(0, 99)) / midTotal;
     if (!scale.isFinite || scale <= 0) return;
 
-    // The outflows stack down the middle bar's right edge with gaps between
-    // them, so they can only fit as far as the bar has room to spare (what
-    // hasn't been spent). Gaps shrink to fit rather than pushing a ribbon
-    // past the bottom of the bar.
+    // The outflow bars are spread down the right side, using whatever room
+    // the middle bar has to spare (income that hasn't gone anywhere) as the
+    // gaps between them, so the two columns line up and the ribbons fan out
+    // and curve. The gaps are capped so a couple of small outflows aren't
+    // flung to the top and bottom of the chart.
     final rightTotal = columnTotals[2] ?? 0;
     final spare = (midTotal - rightTotal) * scale;
     final outGap = rightIndices.length > 1
@@ -210,12 +211,7 @@ class _SankeyPainter extends CustomPainter {
       final srcRect = rects[link.fromNode];
       final dstRect = rects[link.toNode];
       final h = link.amountCents * scale;
-      // An outflow leaves the middle bar level with the bar it arrives at,
-      // so it runs straight across instead of sloping; inflows land in order
-      // down the middle bar.
-      final srcTop = nodes[link.fromNode].column == 1
-          ? dstRect.top
-          : srcRect.top + outCursor[link.fromNode];
+      final srcTop = srcRect.top + outCursor[link.fromNode];
       final dstTop = dstRect.top + inCursor[link.toNode];
       outCursor[link.fromNode] += h;
       inCursor[link.toNode] += h;
