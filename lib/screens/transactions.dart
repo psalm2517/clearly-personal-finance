@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/csv_import.dart';
 import '../data/database.dart';
+import '../data/repository.dart' show Movement, MovementKind;
 import '../main.dart';
 import '../util/money.dart';
 import '../widgets/common.dart';
@@ -23,9 +24,16 @@ class TransactionsScreen extends ConsumerStatefulWidget {
       _TransactionsScreenState();
 }
 
+/// What the register is filtered to. Transfers and card/loan payments are
+/// real money movements but not budget entries, so they get their own kinds.
+enum _Kind { all, income, expense, transfer, payment }
+
+/// One line of the register: a budget entry, or a transfer/payment.
+typedef _Line = ({DateTime date, BudgetEntry? entry, Movement? movement});
+
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   String _search = '';
-  EntryType? _typeFilter;
+  var _kind = _Kind.all;
   String? _sourceFilter; // "account:3" or "card:2"
 
   @override
@@ -71,6 +79,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           repo.watchCards(profileId: profileId),
           repo.watchEntryTagNames(profileId: profileId),
           repo.watchSplitsByEntry(profileId: profileId),
+          repo.watchMovements(profileId: profileId),
         ]),
         builder: (context, snap) {
           if (!snap.hasData) return const SizedBox.shrink();
@@ -80,23 +89,43 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           final tagsByEntry = snap.data![3] as Map<int, List<String>>;
           final splitsByEntry =
               snap.data![4] as Map<int, List<TransactionSplit>>;
+          final movements = snap.data![5] as List<Movement>;
 
           final search = _search.trim().toLowerCase();
-          final visible = entries.where((e) {
-            if (_typeFilter != null && e.type != _typeFilter) return false;
-            if (_sourceFilter != null) {
-              final parts = _sourceFilter!.split(':');
-              final id = int.parse(parts[1]);
-              final matches = parts[0] == 'account'
-                  ? e.accountId == id
-                  : e.cardId == id;
-              if (!matches) return false;
-            }
-            if (search.isEmpty) return true;
-            return e.category.toLowerCase().contains(search) ||
-                (e.description?.toLowerCase().contains(search) ?? false) ||
-                (e.payee?.toLowerCase().contains(search) ?? false);
-          }).toList();
+          bool matchesSource(int? accountId, int? cardId,
+              {int? otherAccountId}) {
+            if (_sourceFilter == null) return true;
+            final parts = _sourceFilter!.split(':');
+            final id = int.parse(parts[1]);
+            return parts[0] == 'account'
+                ? accountId == id || otherAccountId == id
+                : cardId == id;
+          }
+
+          final lines = <_Line>[
+            for (final e in entries)
+              if ((_kind == _Kind.all ||
+                      (_kind == _Kind.income && e.type == EntryType.income) ||
+                      (_kind == _Kind.expense &&
+                          e.type == EntryType.expense)) &&
+                  matchesSource(e.accountId, e.cardId) &&
+                  (search.isEmpty ||
+                      e.category.toLowerCase().contains(search) ||
+                      (e.description?.toLowerCase().contains(search) ??
+                          false) ||
+                      (e.payee?.toLowerCase().contains(search) ?? false)))
+                (date: e.date, entry: e, movement: null),
+            for (final m in movements)
+              if ((_kind == _Kind.all ||
+                      (_kind == _Kind.transfer &&
+                          m.kind == MovementKind.transfer) ||
+                      (_kind == _Kind.payment &&
+                          m.kind != MovementKind.transfer)) &&
+                  matchesSource(m.fromAccountId, m.cardId,
+                      otherAccountId: m.toAccountId) &&
+                  (search.isEmpty || m.label.toLowerCase().contains(search)))
+                (date: m.date, entry: null, movement: m),
+          ]..sort((a, b) => b.date.compareTo(a.date));
 
           String? sourceLabel(BudgetEntry e) {
             if (e.accountId != null) {
@@ -127,17 +156,21 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    SegmentedButton<EntryType?>(
+                    SegmentedButton<_Kind>(
                       segments: const [
-                        ButtonSegment(value: null, label: Text('All')),
+                        ButtonSegment(value: _Kind.all, label: Text('All')),
                         ButtonSegment(
-                            value: EntryType.income, label: Text('Income')),
+                            value: _Kind.income, label: Text('Income')),
                         ButtonSegment(
-                            value: EntryType.expense, label: Text('Expense')),
+                            value: _Kind.expense, label: Text('Expense')),
+                        ButtonSegment(
+                            value: _Kind.transfer, label: Text('Transfers')),
+                        ButtonSegment(
+                            value: _Kind.payment, label: Text('Payments')),
                       ],
-                      selected: {_typeFilter},
+                      selected: {_kind},
                       onSelectionChanged: (s) =>
-                          setState(() => _typeFilter = s.first),
+                          setState(() => _kind = s.first),
                     ),
                     if (accounts.isNotEmpty || cards.isNotEmpty) ...[
                       const SizedBox(width: 12),
@@ -161,7 +194,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 ),
               ),
               Expanded(
-                child: visible.isEmpty
+                child: lines.isEmpty
                     ? const EmptyState(
                         icon: Icons.receipt_long_outlined,
                         title: 'No transactions found',
@@ -174,15 +207,19 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                           Card(
                             child: Column(
                               children: [
-                                for (final e in visible)
-                                  _row(
-                                    context,
-                                    e,
-                                    tagsByEntry[e.id] ?? [],
-                                    splitsByEntry[e.id] ?? [],
-                                    sourceLabel(e),
-                                    scheme,
-                                  ),
+                                for (final line in lines)
+                                  if (line.entry != null)
+                                    _row(
+                                      context,
+                                      line.entry!,
+                                      tagsByEntry[line.entry!.id] ?? [],
+                                      splitsByEntry[line.entry!.id] ?? [],
+                                      sourceLabel(line.entry!),
+                                      scheme,
+                                    )
+                                  else
+                                    _movementRow(context, line.movement!,
+                                        accounts, scheme),
                               ],
                             ),
                           ),
@@ -238,6 +275,35 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           fontWeight: FontWeight.w600,
           color: e.type == EntryType.income ? scheme.primary : null,
         ),
+      ),
+    );
+  }
+
+  /// A transfer or card/loan payment. Shown in a neutral colour with no
+  /// sign — it moved money but is neither income nor spending.
+  Widget _movementRow(BuildContext context, Movement m, List<Account> accounts,
+      ColorScheme scheme) {
+    String accountName(int? id) =>
+        accounts.where((a) => a.id == id).firstOrNull?.name ?? 'Deleted account';
+    final detail = m.kind == MovementKind.transfer
+        ? '${accountName(m.fromAccountId)} → ${accountName(m.toAccountId)}'
+        : m.fromAccountId == null
+            ? 'not tracked to an account'
+            : 'from ${accountName(m.fromAccountId)}';
+    return ListTile(
+      leading: Icon(
+        m.kind == MovementKind.transfer
+            ? Icons.swap_horiz
+            : Icons.payments_outlined,
+        color: scheme.onSurfaceVariant,
+      ),
+      title: Text(m.label),
+      subtitle: Text('${m.kind == MovementKind.transfer ? 'Transfer' : 'Payment'}'
+          ' • $detail • ${_fmtDate(m.date)}'),
+      trailing: MoneyText(
+        fmtCents(m.amountCents),
+        style: const TextStyle(
+            fontFamily: 'monospace', fontWeight: FontWeight.w600),
       ),
     );
   }

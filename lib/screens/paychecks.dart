@@ -84,7 +84,17 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
                     ),
                   );
                 }
-                return Card(
+                return StreamBuilder<List<Account>>(
+                  stream: repo.watchAccounts(profileId: profileId),
+                  builder: (context, accSnap) {
+                    final accounts = accSnap.data ?? [];
+                    String? depositName(PaycheckSchedule s) => s.accountId == null
+                        ? null
+                        : accounts
+                            .where((a) => a.id == s.accountId)
+                            .firstOrNull
+                            ?.name;
+                    return Card(
                   child: Column(children: [
                     for (final s in schedules)
                       ListTile(
@@ -94,7 +104,8 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
                                 : null),
                         title: Text(s.name),
                         subtitle: Text(
-                            '${_freqLabel(s.frequency)} • ${fmtCents(s.amountCents)} after tax'),
+                            '${_freqLabel(s.frequency)} • ${fmtCents(s.amountCents)} after tax'
+                            '${depositName(s) == null ? '' : ' • deposits to ${depositName(s)}'}'),
                         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(
                               icon: const Icon(Icons.edit_outlined, size: 18),
@@ -106,6 +117,8 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
                         ]),
                       ),
                   ]),
+                    );
+                  },
                 );
               },
             ),
@@ -177,6 +190,15 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
         text: existing == null ? '' : (existing.amountCents / 100).toString());
     var frequency = existing?.frequency ?? PayFrequency.biweekly;
     var anchor = existing?.anchorDate ?? DateTime.now();
+    // Paychecks land in a bank or cash account; keep the one already chosen
+    // even if it is some other type, so editing doesn't strand the dropdown.
+    final accounts = (await repo.watchAccounts(profileId: profileId).first)
+        .where((a) =>
+            HomebaseRepository.cashAccountTypes.contains(a.type) ||
+            a.id == existing?.accountId)
+        .toList();
+    int? depositId = existing?.accountId;
+    if (!context.mounted) return;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -207,6 +229,25 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
                 ],
                 onChanged: (v) => setState(() => frequency = v!),
               ),
+              if (accounts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  initialValue: depositId,
+                  decoration: const InputDecoration(
+                      labelText: 'Deposit to (optional)',
+                      helperText: 'Each paycheck adds to this account when it '
+                          'is received',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(
+                        value: null, child: Text('Not tracked')),
+                    for (final a in accounts)
+                      DropdownMenuItem(value: a.id, child: Text(a.name)),
+                  ],
+                  onChanged: (v) => setState(() => depositId = v),
+                ),
+              ],
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 icon: const Icon(Icons.calendar_today, size: 16),
@@ -254,6 +295,7 @@ class _PaychecksScreenState extends ConsumerState<PaychecksScreen> {
       anchorDate: Value(DateTime(anchor.year, anchor.month, anchor.day)),
       amountCents: Value(cents),
       active: const Value(true),
+      accountId: Value(depositId),
     ));
     final now = DateTime.now();
     await repo.generateDuePaychecks(

@@ -122,6 +122,7 @@ class TransfersScreen extends ConsumerWidget {
                               '${accountName(t.fromAccountId)} → '
                               '${accountName(t.toAccountId)} • '
                               '${transferFreqLabel(t.frequency)}'
+                              '${t.targetCategory == null ? '' : ' • counts toward ${t.targetCategory}'}'
                               '${t.active ? '' : ' • paused'}'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -217,6 +218,12 @@ class TransfersScreen extends ConsumerWidget {
 
     final name = TextEditingController();
     final amount = TextEditingController();
+    final categories = [
+      for (final t in await repo.watchBudgetTargets(profileId: profileId).first)
+        t.category
+    ];
+    String? category;
+    if (!context.mounted) return;
     int fromId = accounts[0].id;
     int toId = accounts.firstWhere((a) => a.id != fromId, orElse: () => accounts[1]).id;
 
@@ -269,6 +276,24 @@ class TransfersScreen extends ConsumerWidget {
                   ],
                   onChanged: (v) => setLocal(() => toId = v!),
                 ),
+                if (categories.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String?>(
+                  initialValue: category,
+                  decoration: const InputDecoration(
+                      labelText: 'Counts toward target (optional)',
+                      helperText: 'Shows in that category\'s target on the '
+                          'Budget screen, e.g. Invest or Save',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('None')),
+                    for (final c in categories)
+                      DropdownMenuItem(value: c, child: Text(c)),
+                  ],
+                  onChanged: (v) => setLocal(() => category = v),
+                ),
+                ],
               ]),
             ),
             actions: [
@@ -302,6 +327,7 @@ class TransfersScreen extends ConsumerWidget {
       amountCents: cents,
       date: DateTime.now(),
       name: name.text.trim().isEmpty ? 'Transfer' : name.text.trim(),
+      targetCategory: category,
     );
   }
 
@@ -328,6 +354,13 @@ class TransfersScreen extends ConsumerWidget {
     var frequency = existing?.frequency ?? PayFrequency.monthly;
     var anchorDate = existing?.anchorDate ?? DateTime.now();
     var active = existing?.active ?? true;
+    final categories = {
+      for (final t in await repo.watchBudgetTargets(profileId: profileId).first)
+        t.category,
+      if (existing?.targetCategory != null) existing!.targetCategory!,
+    }.toList();
+    String? category = existing?.targetCategory;
+    if (!context.mounted) return;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -380,6 +413,24 @@ class TransfersScreen extends ConsumerWidget {
                   const SizedBox(height: 12),
                   DialogField(amount, 'Amount (\$)'),
                   const SizedBox(height: 12),
+                  if (categories.isNotEmpty) ...[
+                    DropdownButtonFormField<String?>(
+                  initialValue: category,
+                  decoration: const InputDecoration(
+                      labelText: 'Counts toward target (optional)',
+                      helperText: 'Shows in that category\'s target on the '
+                          'Budget screen, e.g. Invest or Save',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('None')),
+                    for (final c in categories)
+                      DropdownMenuItem(value: c, child: Text(c)),
+                  ],
+                  onChanged: (v) => setLocal(() => category = v),
+                ),
+                    const SizedBox(height: 12),
+                  ],
                   DropdownButtonFormField<PayFrequency>(
                     initialValue: frequency,
                     decoration: const InputDecoration(
@@ -462,6 +513,7 @@ class TransfersScreen extends ConsumerWidget {
       frequency: Value(frequency),
       anchorDate: Value(anchorDate),
       active: Value(active),
+      targetCategory: Value(category),
     ));
   }
 }

@@ -20,6 +20,20 @@ typedef AccountActivity = ({
   AccountActivityKind kind,
 });
 
+/// A transfer or debt payment: real money that moved but is not a budget
+/// entry. [amountCents] is always positive; [kind] says which way it went.
+enum MovementKind { transfer, cardPayment, loanPayment }
+
+typedef Movement = ({
+  DateTime date,
+  String label,
+  int amountCents,
+  MovementKind kind,
+  int? fromAccountId,
+  int? toAccountId,
+  int? cardId,
+});
+
 /// One kind of source feeding [HomebaseRepository.upcomingItems].
 enum UpcomingKind { bill, paycheck, transfer, recurring }
 
@@ -288,6 +302,16 @@ class HomebaseRepository {
           ..where((b) =>
               b.profileId.equals(profileId) & b.accountId.equals(id)))
         .write(const ImportBatchesCompanion(accountId: Value(null)));
+
+    // Same for paycheck schedules and paychecks that deposit to this account.
+    await (_db.update(_db.paycheckSchedules)
+          ..where((sc) =>
+              sc.profileId.equals(profileId) & sc.accountId.equals(id)))
+        .write(const PaycheckSchedulesCompanion(accountId: Value(null)));
+    await (_db.update(_db.paychecks)
+          ..where(
+              (pc) => pc.profileId.equals(profileId) & pc.accountId.equals(id)))
+        .write(const PaychecksCompanion(accountId: Value(null)));
 
     // Same for general recurring transactions linked to this account — the
     // schedule itself still means something without a source/destination.
@@ -1332,6 +1356,98 @@ class HomebaseRepository {
     return rows;
   }
 
+  /// What this month's transfers count toward each budget category, for
+  /// transfers that have a "counts toward" category set. This is how money
+  /// moved to savings or investments shows up against a target like
+  /// "Invest" — display only, since a transfer is never a budget entry.
+  Stream<Map<String, int>> watchTransferTargetTotalsForMonth({
+    required int profileId,
+    required DateTime month,
+  }) {
+    final start = DateTime(month.year, month.month);
+    final end = DateTime(month.year, month.month + 1);
+    return (_db.select(_db.transferLogs).join([
+      innerJoin(_db.recurringTransfers,
+          _db.recurringTransfers.id.equalsExp(_db.transferLogs.transferId)),
+    ])
+          ..where(_db.transferLogs.profileId.equals(profileId) &
+              _db.recurringTransfers.targetCategory.isNotNull() &
+              _db.transferLogs.date.isBiggerOrEqualValue(start) &
+              _db.transferLogs.date.isSmallerThanValue(end)))
+        .watch()
+        .map((rows) {
+      final totals = <String, int>{};
+      for (final row in rows) {
+        final category = row.readTable(_db.recurringTransfers).targetCategory!;
+        totals[category] =
+            (totals[category] ?? 0) + row.readTable(_db.transferLogs).amountCents;
+      }
+      return totals;
+    });
+  }
+
+  /// Every transfer and card/loan payment, newest first — the money
+  /// movements that are not budget entries, so the register and exports can
+  /// show everything that really happened, not just categorized spending.
+  Stream<List<Movement>> watchMovements({required int profileId}) {
+    final transfers = (_db.select(_db.transferLogs).join([
+      innerJoin(_db.recurringTransfers,
+          _db.recurringTransfers.id.equalsExp(_db.transferLogs.transferId)),
+    ])
+          ..where(_db.transferLogs.profileId.equals(profileId)))
+        .watch();
+    final payments = (_db.select(_db.payments)
+          ..where((p) => p.profileId.equals(profileId)))
+        .watch();
+    return combineLatest<dynamic>([
+      transfers,
+      payments,
+      watchCards(profileId: profileId),
+      watchLoans(profileId: profileId),
+    ]).map((data) {
+      final transferRows = data[0] as List<TypedResult>;
+      final paymentRows = data[1] as List<Payment>;
+      final cardRows = data[2] as List<CreditCard>;
+      final loanRows = data[3] as List<Loan>;
+      final movements = <Movement>[
+        for (final row in transferRows)
+          () {
+            final log = row.readTable(_db.transferLogs);
+            final transfer = row.readTable(_db.recurringTransfers);
+            return (
+              date: log.date,
+              label: transfer.name,
+              amountCents: log.amountCents,
+              kind: MovementKind.transfer,
+              fromAccountId: transfer.fromAccountId,
+              toAccountId: transfer.toAccountId,
+              cardId: null,
+            );
+          }(),
+        for (final p in paymentRows)
+          (
+            date: p.date,
+            label: switch (p.accountType) {
+              PaymentAccountType.card => 'Card payment — '
+                  '${cardRows.where((c) => c.id == p.accountId).firstOrNull?.name ?? 'deleted card'}',
+              PaymentAccountType.loan => 'Loan payment — '
+                  '${loanRows.where((l) => l.id == p.accountId).firstOrNull?.name ?? 'deleted loan'}',
+            },
+            amountCents: p.amountCents,
+            kind: p.accountType == PaymentAccountType.card
+                ? MovementKind.cardPayment
+                : MovementKind.loanPayment,
+            fromAccountId: p.fromAccountId,
+            toAccountId: null,
+            cardId:
+                p.accountType == PaymentAccountType.card ? p.accountId : null,
+          ),
+      ];
+      movements.sort((a, b) => b.date.compareTo(a.date));
+      return movements;
+    });
+  }
+
   /// Real money movements this month that categorized spending alone
   /// misses: transfers out of your own accounts, and card/loan payments
   /// actually paid from one. The cash flow chart folds these in as their
@@ -1471,8 +1587,18 @@ class HomebaseRepository {
             ..where((s) => s.profileId.equals(profileId)))
           .watch();
 
-  Future<int> upsertSchedule(PaycheckSchedulesCompanion entry) =>
-      _upsertId(_db.paycheckSchedules, entry);
+  Future<int> upsertSchedule(PaycheckSchedulesCompanion entry) async {
+    final id = await _upsertId(_db.paycheckSchedules, entry);
+    // Paychecks already generated but not yet received follow the
+    // schedule's deposit account; ones already received keep the account
+    // they were actually credited to.
+    if (entry.accountId.present) {
+      await (_db.update(_db.paychecks)
+            ..where((p) => p.scheduleId.equals(id) & p.received.equals(false)))
+          .write(PaychecksCompanion(accountId: entry.accountId));
+    }
+    return id;
+  }
 
   /// Removes a schedule. Paychecks it already produced are kept — money you
   /// were actually paid is history, not a detail of the schedule — but they
@@ -1561,6 +1687,7 @@ class HomebaseRepository {
                 date: date,
                 amountCents: schedule.amountCents,
                 scheduleId: Value(schedule.id),
+                accountId: Value(schedule.accountId),
               ));
         }
       }
@@ -1723,25 +1850,45 @@ class HomebaseRepository {
     final existing = await (_db.select(_db.budgetEntries)
           ..where((e) => e.sourcePaycheckId.equals(paycheck.id)))
         .getSingleOrNull();
-    if (paycheck.received) {
-      await _db.into(_db.budgetEntries).insertOnConflictUpdate(
-            BudgetEntriesCompanion(
-              id: existing == null
-                  ? const Value.absent()
-                  : Value(existing.id),
-              profileId: Value(paycheck.profileId),
-              date: Value(paycheck.date),
-              category: const Value('Paycheck'),
-              amountCents:
-                  Value(paycheck.amountCents + paycheck.bonusCents),
-              type: const Value(EntryType.income),
-              description: Value(paycheck.name),
-              sourcePaycheckId: Value(paycheck.id),
-            ),
-          );
-    } else if (existing != null) {
-      await (_db.delete(_db.budgetEntries)..where((e) => e.id.equals(existing.id)))
-          .go();
+    final total = paycheck.amountCents + paycheck.bonusCents;
+    var touchedBalance = false;
+    await _db.transaction(() async {
+      // Take back whatever the previous version of this entry put on an
+      // account, then apply the current state — the same reverse-then-apply
+      // an edited entry gets, so changing the amount, the deposit account or
+      // the received flag can never leave a balance off.
+      if (existing?.accountId != null) {
+        await _adjustAccountBalance(existing!.accountId!, -existing.amountCents);
+        touchedBalance = true;
+      }
+      if (paycheck.received) {
+        await _db.into(_db.budgetEntries).insertOnConflictUpdate(
+              BudgetEntriesCompanion(
+                id: existing == null
+                    ? const Value.absent()
+                    : Value(existing.id),
+                profileId: Value(paycheck.profileId),
+                date: Value(paycheck.date),
+                category: const Value('Paycheck'),
+                amountCents: Value(total),
+                type: const Value(EntryType.income),
+                description: Value(paycheck.name),
+                sourcePaycheckId: Value(paycheck.id),
+                accountId: Value(paycheck.accountId),
+              ),
+            );
+        if (paycheck.accountId != null) {
+          await _adjustAccountBalance(paycheck.accountId!, total);
+          touchedBalance = true;
+        }
+      } else if (existing != null) {
+        await (_db.delete(_db.budgetEntries)
+              ..where((e) => e.id.equals(existing.id)))
+            .go();
+      }
+    });
+    if (touchedBalance) {
+      await recordNetWorthSnapshot(profileId: paycheck.profileId);
     }
   }
 
@@ -1757,6 +1904,13 @@ class HomebaseRepository {
         .getSingleOrNull();
     if (paycheck == null) return;
 
+    final entry = await (_db.select(_db.budgetEntries)
+          ..where((e) => e.sourcePaycheckId.equals(id)))
+        .getSingleOrNull();
+    if (entry?.accountId != null) {
+      await _adjustAccountBalance(entry!.accountId!, -entry.amountCents);
+      await recordNetWorthSnapshot(profileId: profileId);
+    }
     await (_db.delete(_db.budgetEntries)
           ..where((e) => e.sourcePaycheckId.equals(id)))
         .go();
@@ -2036,6 +2190,7 @@ class HomebaseRepository {
     required int amountCents,
     required DateTime date,
     required String name,
+    String? targetCategory,
   }) async {
     await _db.transaction(() async {
       final transferId = await _db.into(_db.recurringTransfers).insert(
@@ -2048,6 +2203,7 @@ class HomebaseRepository {
               frequency: PayFrequency.monthly,
               anchorDate: date,
               active: const Value(false),
+              targetCategory: Value(targetCategory),
             ),
           );
       await _db.into(_db.transferLogs).insert(TransferLogsCompanion.insert(
@@ -2303,6 +2459,9 @@ class HomebaseRepository {
     for (final p in paychecks) {
       final date = DateTime(p.date.year, p.date.month, p.date.day);
       if (date.isBefore(today) || date.isAfter(end)) continue;
+      // Received into a tracked account means it is already in the balance
+      // the projection starts from.
+      if (p.received && p.accountId != null) continue;
       deltas[date] = (deltas[date] ?? 0) + p.amountCents + p.bonusCents;
     }
 
@@ -2407,7 +2566,7 @@ class HomebaseRepository {
     final paychecks = await watchPaychecks(profileId: profileId).first;
     for (final p in paychecks) {
       final date = DateTime(p.date.year, p.date.month, p.date.day);
-      if (!inWindow(date)) continue;
+      if (!inWindow(date) || p.received) continue;
       items.add((
         date: date,
         label: p.name,
@@ -2590,9 +2749,9 @@ class HomebaseRepository {
     }
   }
 
-  /// A CSV of every entry for a profile, newest first — description,
-  /// category, amount and the account or card it moved through, for
-  /// taking your data elsewhere.
+  /// A CSV of everything that happened for a profile, newest first — entries
+  /// plus transfers and card/loan payments, each with its type, amount and
+  /// the account or card it moved through, for taking your data elsewhere.
   Future<String> exportEntriesAsCsv({required int profileId}) async {
     final entries = await (_db.select(_db.budgetEntries)
           ..where((e) => e.profileId.equals(profileId))
@@ -2604,22 +2763,53 @@ class HomebaseRepository {
     final cards = {
       for (final c in await watchCards(profileId: profileId).first) c.id: c.name,
     };
+    String day(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+    final movements = await watchMovements(profileId: profileId).first;
+
+    // Entries and the transfers/payments that are not entries, merged so
+    // the file shows everything that really happened, newest first.
+    final dated = <({DateTime date, List<Object?> row})>[
+      for (final e in entries)
+        (
+          date: e.date,
+          row: [
+            day(e.date),
+            e.description ?? '',
+            e.category,
+            e.type.name,
+            (e.amountCents / 100).toStringAsFixed(2),
+            e.accountId != null
+                ? accounts[e.accountId] ?? ''
+                : e.cardId != null
+                    ? cards[e.cardId] ?? ''
+                    : '',
+          ],
+        ),
+      for (final m in movements)
+        (
+          date: m.date,
+          row: [
+            day(m.date),
+            m.label,
+            '',
+            switch (m.kind) {
+              MovementKind.transfer => 'transfer',
+              MovementKind.cardPayment => 'card payment',
+              MovementKind.loanPayment => 'loan payment',
+            },
+            (m.amountCents / 100).toStringAsFixed(2),
+            m.kind == MovementKind.transfer
+                ? '${accounts[m.fromAccountId] ?? ''} to '
+                    '${accounts[m.toAccountId] ?? ''}'
+                : accounts[m.fromAccountId] ?? '',
+          ],
+        ),
+    ]..sort((a, b) => b.date.compareTo(a.date));
+
     final rows = <List<Object?>>[
       ['Date', 'Description', 'Category', 'Type', 'Amount', 'Account/Card'],
-      for (final e in entries)
-        [
-          '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}-'
-              '${e.date.day.toString().padLeft(2, '0')}',
-          e.description ?? '',
-          e.category,
-          e.type.name,
-          (e.amountCents / 100).toStringAsFixed(2),
-          e.accountId != null
-              ? accounts[e.accountId] ?? ''
-              : e.cardId != null
-                  ? cards[e.cardId] ?? ''
-                  : '',
-        ],
+      for (final d in dated) d.row,
     ];
     return const ListToCsvConverter().convert(rows);
   }

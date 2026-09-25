@@ -26,6 +26,16 @@ void main() {
         is_admin INTEGER NOT NULL DEFAULT 0);
     ''');
     raw.execute('''
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
+    ''');
+    raw.execute('''
       CREATE TABLE bills (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -162,6 +172,16 @@ void main() {
         is_admin INTEGER NOT NULL DEFAULT 0);
     ''');
     raw.execute('''
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
+    ''');
+    raw.execute('''
       CREATE TABLE bills (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -260,6 +280,16 @@ void main() {
         name TEXT NOT NULL,
         pin_hash TEXT NULL,
         is_admin INTEGER NOT NULL DEFAULT 0);
+    ''');
+    raw.execute('''
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
     ''');
     raw.execute('''
       CREATE TABLE bills (
@@ -370,6 +400,27 @@ void main() {
         name TEXT NOT NULL,
         pin_hash TEXT NULL,
         is_admin INTEGER NOT NULL DEFAULT 0);
+    """);
+    raw.execute("""
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
+    """);
+    raw.execute("""
+      CREATE TABLE paychecks (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        bonus_cents INTEGER NOT NULL DEFAULT 0,
+        received INTEGER NOT NULL DEFAULT 0,
+        schedule_id INTEGER NULL);
     """);
     raw.execute("""
       CREATE TABLE credit_cards (
@@ -518,6 +569,27 @@ void main() {
         is_admin INTEGER NOT NULL DEFAULT 0);
     """);
     raw.execute("""
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
+    """);
+    raw.execute("""
+      CREATE TABLE paychecks (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        bonus_cents INTEGER NOT NULL DEFAULT 0,
+        received INTEGER NOT NULL DEFAULT 0,
+        schedule_id INTEGER NULL);
+    """);
+    raw.execute("""
       CREATE TABLE accounts (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL REFERENCES profiles (id),
@@ -632,6 +704,27 @@ void main() {
         name TEXT NOT NULL,
         pin_hash TEXT NULL,
         is_admin INTEGER NOT NULL DEFAULT 0);
+    """);
+    raw.execute("""
+      CREATE TABLE paycheck_schedules (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        anchor_date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1);
+    """);
+    raw.execute("""
+      CREATE TABLE paychecks (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL REFERENCES profiles (id),
+        name TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        bonus_cents INTEGER NOT NULL DEFAULT 0,
+        received INTEGER NOT NULL DEFAULT 0,
+        schedule_id INTEGER NULL);
     """);
     raw.execute("""
       CREATE TABLE accounts (
@@ -826,6 +919,9 @@ void main() {
     // with no card link.
     final raw = sqlite3.open(f.path);
     raw.execute('UPDATE budget_entries SET card_id = NULL;');
+    raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
+    raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
+    raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
     raw.execute('PRAGMA user_version = 21;');
     raw.close();
 
@@ -837,5 +933,58 @@ void main() {
 
     expect(streaming.cardId, card);
     expect(rent.cardId, isNull, reason: 'an account-paid bill is untouched');
+  });
+
+  test('a v22 database gains transfer categories and paycheck deposit accounts',
+      () async {
+    final dir23 = Directory.systemTemp.createTempSync('homebase_v22');
+    addTearDown(() => dir23.deleteSync(recursive: true));
+    final f = File('${dir23.path}/homebase.sqlite');
+
+    var db = AppDatabase.forTesting(NativeDatabase(f));
+    final repo = HomebaseRepository(db);
+    final profile = await repo.createProfile(
+        ProfilesCompanion.insert(name: 'Owner', isAdmin: const Value(true)));
+    final a = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profile, name: 'A', type: AccountType.checking));
+    final b = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profile, name: 'B', type: AccountType.savings));
+    await repo.upsertRecurringTransfer(RecurringTransfersCompanion.insert(
+        profileId: profile,
+        name: 'Move',
+        fromAccountId: a,
+        toAccountId: b,
+        amountCents: 1000,
+        frequency: PayFrequency.monthly,
+        anchorDate: DateTime(2026, 8, 1)));
+    await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profile,
+        name: 'Job',
+        date: DateTime(2026, 8, 1),
+        amountCents: 100000));
+    await repo.upsertSchedule(PaycheckSchedulesCompanion.insert(
+        profileId: profile,
+        name: 'Job',
+        frequency: PayFrequency.weekly,
+        anchorDate: DateTime(2026, 8, 1),
+        amountCents: 100000));
+    await db.close();
+
+    // Put it back the way a v22 database had it: without the new columns.
+    final raw = sqlite3.open(f.path);
+    raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
+    raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
+    raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
+    raw.execute('PRAGMA user_version = 22;');
+    raw.close();
+
+    db = AppDatabase.forTesting(NativeDatabase(f));
+    addTearDown(db.close);
+
+    expect((await db.select(db.recurringTransfers).getSingle()).targetCategory,
+        isNull);
+    expect((await db.select(db.paychecks).getSingle()).accountId, isNull);
+    expect((await db.select(db.paycheckSchedules).getSingle()).accountId,
+        isNull);
   });
 }

@@ -541,13 +541,18 @@ class DashboardScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SectionHeader(
-                    'Cashflow',
+                    'Income vs spending',
                     icon: Icons.bar_chart_outlined,
                     info: InfoButton(
-                      title: 'Cashflow',
+                      title: 'Income vs spending',
                       body: [
-                        'Money in versus money out for each of the last six '
-                            'months, built from your Budget entries.',
+                        'Income versus spending for each of the last six '
+                            'months, built from your Budget entries. A card '
+                            'purchase counts as spending when you make it, '
+                            'so this is what you spent, not what left your '
+                            'accounts. The Cash flow chart on the Budget '
+                            'screen is the one that follows the money '
+                            'leaving your accounts.',
                         'Green bars are income, red bars are expenses. When '
                             'the red bar is taller than the green one, you '
                             'spent more than you earned that month.',
@@ -573,7 +578,7 @@ class DashboardScreen extends ConsumerWidget {
                               padding: EdgeInsets.all(16),
                               child: EmptyState(
                                 icon: Icons.bar_chart_outlined,
-                                title: 'No cashflow yet',
+                                title: 'Nothing to compare yet',
                                 message:
                                     'Add income and expenses in Budget to see '
                                     'money in versus money out by month.',
@@ -1717,8 +1722,8 @@ class _ProjectedCashBalanceSectionState
                       title: 'Projected cash balance',
                       body: [
                         'A projection of your balance, not your flow — see '
-                            '"Cashflow" below for money in versus out by '
-                            'month. This is where checking, savings and '
+                            '"Income vs spending" below for money in versus '
+                            'out by month. This is where checking, savings and '
                             'cash is headed, not a prediction of unplanned '
                             'spending, just what Clearly already knows is '
                             'coming: scheduled paychecks, bills, recurring '

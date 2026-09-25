@@ -348,6 +348,12 @@ class PaycheckSchedules extends Table {
   DateTimeColumn get anchorDate => dateTime()(); // first/next known payday
   IntColumn get amountCents => integer()();
   BoolColumn get active => boolean().withDefault(const Constant(true))();
+
+  /// Where each paycheck from this schedule is deposited. When set, a
+  /// received paycheck credits that account, so its balance, the cash
+  /// projection and its history all agree with Income. Null leaves the
+  /// balance alone, as paychecks always used to.
+  IntColumn get accountId => integer().nullable().references(Accounts, #id)();
 }
 
 /// An expected or received paycheck to plan against.
@@ -374,6 +380,10 @@ class Paychecks extends Table {
   /// Set when this check was generated from a schedule.
   IntColumn get scheduleId =>
       integer().nullable().references(PaycheckSchedules, #id)();
+
+  /// The account this check is deposited to — copied from its schedule when
+  /// generated, or chosen by hand. See [PaycheckSchedules.accountId].
+  IntColumn get accountId => integer().nullable().references(Accounts, #id)();
 }
 
 /// "From this paycheck, [amountCents] goes to [target]" — e.g. Savings, Rent.
@@ -432,6 +442,12 @@ class RecurringTransfers extends Table {
   TextColumn get frequency => textEnum<PayFrequency>()();
   DateTimeColumn get anchorDate => dateTime()();
   BoolColumn get active => boolean().withDefault(const Constant(true))();
+
+  /// A budget category this transfer counts toward (e.g. "Invest"), so money
+  /// moved to a savings or investment account shows up in that category's
+  /// target. Display only: a transfer still creates no budget entry and never
+  /// counts as income or spending.
+  TextColumn get targetCategory => text().nullable()();
 }
 
 /// One row per transfer occurrence actually executed, so a schedule never
@@ -532,7 +548,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 23;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -721,6 +737,16 @@ class AppDatabase extends _$AppDatabase {
               "WHERE b.payment_source_type = 'card' "
               'AND b.payment_source_id IS NOT NULL)',
             );
+          }
+          if (from < 23) {
+            // Upgraders from before v12 already got this column above —
+            // createTable(recurringTransfers) there always uses the current
+            // Dart column set.
+            if (from >= 12) {
+              await m.addColumn(recurringTransfers, recurringTransfers.targetCategory);
+            }
+            await m.addColumn(paycheckSchedules, paycheckSchedules.accountId);
+            await m.addColumn(paychecks, paychecks.accountId);
           }
         },
         beforeOpen: (details) async {

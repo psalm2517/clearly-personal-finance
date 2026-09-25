@@ -79,7 +79,7 @@ date.
 ![Goals](docs/screenshots/goals.png)
 
 **Dashboard.** Net worth trend and breakdown, a 60-day cash balance
-projection, credit utilization, cashflow, upcoming bills and a credit score
+projection, credit utilization, income vs spending, upcoming bills and a credit score
 history you log yourself.
 
 ## Privacy between profiles

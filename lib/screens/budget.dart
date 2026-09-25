@@ -63,6 +63,8 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               profileId: profileId, month: _month),
           repo.watchRealMoneyMovementsForMonth(
               profileId: profileId, month: _month),
+          repo.watchTransferTargetTotalsForMonth(
+              profileId: profileId, month: _month),
         ]),
         builder: (context, snap) {
           if (!snap.hasData) return const SizedBox.shrink();
@@ -76,6 +78,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               snap.data![8] as Map<int, List<TransactionSplit>>;
           final billsPaid = snap.data![9] as int;
           final realMovements = snap.data![10] as Map<String, int>;
+          final transferTotals = snap.data![11] as Map<String, int>;
           return _body(
               context,
               entries,
@@ -84,6 +87,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
               billsDue,
               billsPaid,
               realMovements,
+              transferTotals,
               setAside, tagsByEntry, splitsByEntry, scheme);
         },
       ),
@@ -98,6 +102,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       int billsDueCents,
       int billsPaidCents,
       Map<String, int> realMovements,
+      Map<String, int> transferTotals,
       int setAsideCents,
       Map<int, List<String>> tagsByEntry,
       Map<int, List<TransactionSplit>> splitsByEntry,
@@ -143,12 +148,17 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
         cashIncomeByCategory.isNotEmpty ||
         realMovements.isNotEmpty;
 
+    // Money transferred toward a category counts against its target too — a
+    // transfer to an investment account is exactly what an "Invest" target
+    // is for, even though it is never a budget entry.
+    int usedIn(String category) =>
+        (spentByCategory[category] ?? 0) + (transferTotals[category] ?? 0);
     final categories = {
       ...spentByCategory.keys,
+      ...transferTotals.keys,
       ...targets.map((t) => t.category)
     }.toList()
-      ..sort((a, b) =>
-          (spentByCategory[b] ?? 0).compareTo(spentByCategory[a] ?? 0));
+      ..sort((a, b) => usedIn(b).compareTo(usedIn(a)));
 
     final allTags = tagsByEntry.values.expand((t) => t).toSet().toList()
       ..sort();
@@ -343,7 +353,9 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                     title: 'Where it went',
                     body: [
                       'This month\'s spending grouped by category, biggest '
-                          'first.',
+                          'first. A transfer counts here too if you gave it a '
+                          '"counts toward" category, so money moved to savings '
+                          'or investments shows against a target like Invest.',
                       'If you set a target for a category, a bar shows how '
                           'much of it you have used, turning red once you go '
                           'over. Targets are optional — without one you just '
@@ -370,9 +382,9 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                   child: Column(
                     children: [
                       for (final cat in categories)
-                        _categoryTile(context, cat,
-                            spentByCategory[cat] ?? 0, _targetFor(targets, cat),
-                            scheme),
+                        _categoryTile(context, cat, usedIn(cat),
+                            _targetFor(targets, cat), scheme,
+                            transferredCents: transferTotals[cat] ?? 0),
                     ],
                   ),
                 ),
@@ -668,20 +680,31 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   }
 
   Widget _categoryTile(BuildContext context, String category, int spentCents,
-      int? targetCents, ColorScheme scheme) {
+      int? targetCents, ColorScheme scheme,
+      {int transferredCents = 0}) {
     final over = targetCents != null && spentCents > targetCents;
     return ListTile(
       leading: SizedBox(
           width: 24, height: 24, child: Center(child: CategoryDot(category))),
       title: Text(category),
-      subtitle: targetCents == null
+      subtitle: targetCents == null && transferredCents == 0
           ? null
-          : Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: LinearProgressIndicator(
-                value: (spentCents / targetCents).clamp(0.0, 1.0),
-                color: over ? scheme.error : scheme.primary,
-              ),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (transferredCents > 0)
+                  Text('includes ${fmtCents(transferredCents)} transferred',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant)),
+                if (targetCents != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: LinearProgressIndicator(
+                      value: (spentCents / targetCents).clamp(0.0, 1.0),
+                      color: over ? scheme.error : scheme.primary,
+                    ),
+                  ),
+              ],
             ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
