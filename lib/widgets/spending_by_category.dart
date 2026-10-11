@@ -7,6 +7,7 @@ import '../data/database.dart';
 import '../main.dart';
 import '../util/money.dart';
 import 'category_picker.dart';
+import 'common.dart';
 
 /// One line of a category: either a whole entry or one slice of a split.
 class _Line {
@@ -182,6 +183,8 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
                         color: scheme.onSurfaceVariant,
                       ),
                       const SizedBox(width: 6),
+                      CategoryDot(cat),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           cat,
@@ -230,9 +233,7 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
                             value: totals[cat]! / biggest,
                             minHeight: 8,
                             backgroundColor: scheme.surfaceContainerHighest,
-                            color: cat == 'Other'
-                                ? scheme.onSurfaceVariant
-                                : scheme.primary,
+                            color: categoryColor(context, cat),
                           ),
                         ),
                       ),

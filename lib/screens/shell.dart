@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +11,7 @@ import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
 import '../widgets/add_transaction.dart';
 import 'accounts_hub.dart';
+import 'bank_sync.dart' show simpleFinClientProvider;
 import 'budget.dart';
 import 'cash_flow.dart';
 import 'dashboard.dart';
@@ -17,6 +20,15 @@ import 'nav.dart';
 import 'recurring_hub.dart';
 import 'settings.dart';
 import 'transactions.dart';
+
+/// The next 1:30 AM, local time: tonight if it has not passed yet, otherwise
+/// tomorrow night. When the bank feed is synced automatically.
+DateTime nextNightlySyncTime(DateTime now) {
+  final tonight = DateTime(now.year, now.month, now.day, 1, 30);
+  return tonight.isAfter(now)
+      ? tonight
+      : DateTime(now.year, now.month, now.day + 1, 1, 30);
+}
 
 /// Desktop shell: NavigationRail sidebar + content. Only admins see the
 /// profile switcher; non-admins have no indication other profiles exist.
@@ -29,6 +41,43 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int? _caughtUpFor;
+  Timer? _nightly;
+
+  /// Syncs the bank feed once a day at 1:30 AM, while Clearly is open. It is
+  /// the only automatic sync; starting the app does not sync.
+  void _scheduleNightlySync() {
+    _nightly?.cancel();
+    final wait = nextNightlySyncTime(DateTime.now()).difference(DateTime.now());
+    _nightly = Timer(wait, () async {
+      try {
+        final profile = ref.read(activeProfileProvider) ??
+            ref.read(loggedInProfileProvider);
+        if (profile != null) {
+          final repo = ref.read(repositoryProvider);
+          await repo.syncSimpleFin(
+            profileId: profile.id,
+            client: ref.read(simpleFinClientProvider),
+          );
+        }
+      } catch (_) {
+        // The result, good or bad, is kept on the connection and shown in
+        // Settings; a failed night should not interrupt anything.
+      }
+      if (mounted) _scheduleNightlySync();
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNightlySync();
+  }
+
+  @override
+  void dispose() {
+    _nightly?.cancel();
+    super.dispose();
+  }
 
   /// Brings the books up to date for whoever is being viewed: generate
   /// upcoming paychecks, mark ones whose payday has passed as received, and

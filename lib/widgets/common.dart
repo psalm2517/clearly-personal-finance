@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/categories.dart';
 import '../theme/catppuccin.dart';
 
 export '../util/streams.dart' show combineLatest;
@@ -444,7 +445,13 @@ class DangerButton extends StatelessWidget {
 /// no lookup table to maintain as categories are freely typed.
 Color categoryColor(BuildContext context, String category) {
   final colors = Theme.of(context).extension<CategoryColors>()!;
-  return colors.forIndex(category.hashCode);
+  // The built-in categories each get their own colour, in list order, so no
+  // two of them ever share one by hash accident. Anything else is hashed.
+  final builtIn = defaultSpendingCategories.indexOf(category);
+  if (category == Cat.other) {
+    return Theme.of(context).colorScheme.onSurfaceVariant;
+  }
+  return colors.forIndex(builtIn >= 0 ? builtIn : category.hashCode);
 }
 
 /// A small colored circle marking a category, matching [categoryColor].

@@ -348,6 +348,13 @@ ThemeData themeFor(
         c.sapphire,
         c.maroon,
         c.sky,
+        // Appended so the colours of the first eight never change.
+        c.green,
+        c.mauve,
+        c.red,
+        c.blue,
+        c.flamingo,
+        c.rosewater,
       ]),
     ],
   );

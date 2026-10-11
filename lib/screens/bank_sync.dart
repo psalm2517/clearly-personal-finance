@@ -248,8 +248,11 @@ class _BankSyncSectionState extends ConsumerState<BankSyncSection> {
                       'so six months and year-to-date fill in as it runs. '
                       'The first sync also reconstructs daily balances for '
                       'the days it can see.',
-                  'The SimpleFIN Bridge allows about 24 refreshes a day, so '
-                      'syncing is not meant to be instant.',
+                  'Clearly syncs by itself once a day at 1:30 AM while it is '
+                      'open, and whenever you press Sync now. Opening the app '
+                      'does not sync. The SimpleFIN Bridge allows about 24 '
+                      'refreshes a day, so syncing is not meant to be '
+                      'instant.',
                   'This is optional. Without it, everything works by hand.',
                 ],
               ),
