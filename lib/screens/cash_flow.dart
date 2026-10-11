@@ -8,10 +8,21 @@ import '../widgets/cashflow_chart.dart';
 import '../widgets/common.dart';
 import '../widgets/projected_cash_section.dart';
 import '../widgets/sankey_chart.dart';
+import '../widgets/spending_by_category.dart';
 
 const _monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 /// Where money came from and where it went, and where your cash is headed:
@@ -42,89 +53,148 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
     return ListView(
       padding: kPagePadding,
       children: [
-        SectionHeader('Where it went',
-            icon: Icons.alt_route,
-            info: const InfoButton(
-              title: 'Where it went',
-              body: [
-                'What came in this month is on the left, and where it went is '
-                    'on the right: your spending by category, transfers to '
-                    'your other accounts, and loan payments.',
-                'Only money that really went somewhere is drawn on the '
-                    'right. If the middle bar is taller than what flows out '
-                    'of it, its shaded end is income that has not been spent '
-                    'or moved yet. It is not counted as savings.',
-                'Spending is counted when you make it, including on a card. '
-                    'A card payment is not drawn separately, because it '
-                    'settles purchases that are already counted.',
-                'If more went out than came in, the gap shows on the left as '
-                    'a Shortfall: money that came from savings from earlier '
-                    'months or from borrowing, not from this month\'s '
-                    'income.',
-              ],
-            )),
+        SectionHeader(
+          'Where it went',
+          icon: Icons.alt_route,
+          info: const InfoButton(
+            title: 'Where it went',
+            body: [
+              'What came in this month is on the left, and where it went is '
+                  'on the right: your spending by category, transfers to '
+                  'your other accounts, and loan payments.',
+              'Only money that really went somewhere is drawn on the '
+                  'right. If the middle bar is taller than what flows out '
+                  'of it, its shaded end is income that has not been spent '
+                  'or moved yet. It is not counted as savings.',
+              'Spending is counted when you make it, including on a card. '
+                  'A card payment is not drawn separately, because it '
+                  'settles purchases that are already counted.',
+              'If more went out than came in, the gap shows on the left as '
+                  'a Shortfall: money that came from savings from earlier '
+                  'months or from borrowing, not from this month\'s '
+                  'income.',
+            ],
+          ),
+        ),
         _monthBar(context),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: StreamBuilder<List<dynamic>>(
-                stream: combineLatest<dynamic>([
-                  repo.watchBudgetForMonth(profileId: profileId, month: _month),
-                  repo.watchSplitsByEntry(profileId: profileId),
-                  repo.watchRealMoneyMovementsForMonth(
-                      profileId: profileId,
-                      month: _month,
-                      includeCardPayments: false),
-                ]),
-                builder: (context, snap) {
-                  if (!snap.hasData) return const SizedBox.shrink();
-                  final entries = snap.data![0] as List<BudgetEntry>;
-                  final splits =
-                      snap.data![1] as Map<int, List<TransactionSplit>>;
-                  final movements = snap.data![2] as Map<String, int>;
+              stream: combineLatest<dynamic>([
+                repo.watchBudgetForMonth(profileId: profileId, month: _month),
+                repo.watchSplitsByEntry(profileId: profileId),
+                repo.watchRealMoneyMovementsForMonth(
+                  profileId: profileId,
+                  month: _month,
+                  includeCardPayments: false,
+                ),
+              ]),
+              builder: (context, snap) {
+                if (!snap.hasData) return const SizedBox.shrink();
+                final entries = snap.data![0] as List<BudgetEntry>;
+                final splits =
+                    snap.data![1] as Map<int, List<TransactionSplit>>;
+                final movements = snap.data![2] as Map<String, int>;
 
-                  // What you spent, by category, counted when you spent it
-                  // (a card purchase included), plus transfers to your other
-                  // accounts and loan payments.
-                  final spent = <String, int>{};
-                  final income = <String, int>{};
-                  for (final r
-                      in HomebaseRepository.expandForCategoryTotals(
-                          entries, splits)) {
-                    final map =
-                        r.type == EntryType.expense ? spent : income;
-                    map[r.category] = (map[r.category] ?? 0) + r.amountCents;
-                  }
-                  final outflows = {
-                    ...spent,
-                    for (final e in movements.entries)
-                      e.key: (spent[e.key] ?? 0) + e.value,
-                  };
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        height: 320,
-                        child: IncomeSankeyChart(
-                          incomeByCategory: income,
-                          expenseByCategory: outflows,
-                        ),
+                // What you spent, by category, counted when you spent it
+                // (a card purchase included), plus transfers to your other
+                // accounts and loan payments.
+                final spent = <String, int>{};
+                final income = <String, int>{};
+                for (final r in HomebaseRepository.expandForCategoryTotals(
+                  entries,
+                  splits,
+                )) {
+                  final map = r.type == EntryType.expense ? spent : income;
+                  map[r.category] = (map[r.category] ?? 0) + r.amountCents;
+                }
+                final outflows = {
+                  ...spent,
+                  for (final e in movements.entries)
+                    e.key: (spent[e.key] ?? 0) + e.value,
+                };
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      height: 320,
+                      child: IncomeSankeyChart(
+                        incomeByCategory: income,
+                        expenseByCategory: outflows,
                       ),
-                    ],
-                  );
-                },
-              ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+        kSectionGap,
+        SectionHeader(
+          'Spending by category',
+          icon: Icons.donut_small_outlined,
+          info: const InfoButton(
+            title: 'Spending by category',
+            body: [
+              'Everything you spent this month, grouped by category and '
+                  'largest first. Open a category to see the transactions '
+                  'behind it.',
+              'Use Categorize on a transaction to move it. You can also '
+                  'have Clearly use that category for everything from the '
+                  'same merchant, now and from then on.',
+              'Transfers between your own accounts and card payments are '
+                  'not spending, so they are not listed here.',
+            ],
+          ),
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: StreamBuilder<List<dynamic>>(
+              stream: combineLatest<dynamic>([
+                repo.watchBudgetForMonth(profileId: profileId, month: _month),
+                repo.watchBudgetForMonth(
+                  profileId: profileId,
+                  month: DateTime(_month.year, _month.month - 1),
+                ),
+                repo.watchSplitsByEntry(profileId: profileId),
+              ]),
+              builder: (context, snap) {
+                if (!snap.hasData) return const SizedBox.shrink();
+                final entries = snap.data![0] as List<BudgetEntry>;
+                final previous = snap.data![1] as List<BudgetEntry>;
+                final splits =
+                    snap.data![2] as Map<int, List<TransactionSplit>>;
+                final before = <String, int>{};
+                for (final r in HomebaseRepository.expandForCategoryTotals(
+                  previous,
+                  splits,
+                )) {
+                  if (r.type != EntryType.expense) continue;
+                  before[r.category] =
+                      (before[r.category] ?? 0) + r.amountCents;
+                }
+                return SpendingByCategory(
+                  entries: entries,
+                  splits: splits,
+                  previousTotals: before,
+                );
+              },
+            ),
           ),
         ),
         kSectionGap,
         StreamBuilder<
-            List<({DateTime month, int incomeCents, int expenseCents})>>(
+          List<({DateTime month, int incomeCents, int expenseCents})>
+        >(
           stream: repo.watchCashflow(profileId: profileId),
           builder: (context, snap) {
             final data = snap.data ?? [];
-            final hasAny =
-                data.any((m) => m.incomeCents > 0 || m.expenseCents > 0);
+            final hasAny = data.any(
+              (m) => m.incomeCents > 0 || m.expenseCents > 0,
+            );
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -164,7 +234,8 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                             child: EmptyState(
                               icon: Icons.bar_chart_outlined,
                               title: 'Nothing to compare yet',
-                              message: 'Add income and spending to see them '
+                              message:
+                                  'Add income and spending to see them '
                                   'side by side by month.',
                             ),
                           ),
@@ -188,14 +259,18 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
           IconButton(
             icon: const Icon(Icons.chevron_left),
             onPressed: () => setState(
-                () => _month = DateTime(_month.year, _month.month - 1)),
+              () => _month = DateTime(_month.year, _month.month - 1),
+            ),
           ),
-          Text('${_monthNames[_month.month - 1]} ${_month.year}',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            '${_monthNames[_month.month - 1]} ${_month.year}',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
             onPressed: () => setState(
-                () => _month = DateTime(_month.year, _month.month + 1)),
+              () => _month = DateTime(_month.year, _month.month + 1),
+            ),
           ),
           if (!_isCurrentMonth)
             TextButton(

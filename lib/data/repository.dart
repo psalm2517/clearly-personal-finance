@@ -1342,6 +1342,73 @@ class HomebaseRepository {
     }
   }
 
+  /// Changes only an entry's category, which needs none of the balance
+  /// handling a full edit does. With [applyToSimilar], every other entry
+  /// with the same payee or description is moved too, and a rule is added so
+  /// future ones land there as well. Returns how many entries changed.
+  Future<int> setEntryCategory({
+    required int profileId,
+    required int id,
+    required String category,
+    bool applyToSimilar = false,
+  }) async {
+    final cat = category.trim();
+    if (cat.isEmpty) return 0;
+    final entry = await (_db.select(_db.budgetEntries)
+          ..where((e) => e.profileId.equals(profileId) & e.id.equals(id)))
+        .getSingleOrNull();
+    if (entry == null) return 0;
+
+    var changed = 0;
+    await _db.transaction(() async {
+      await (_db.update(_db.budgetEntries)..where((e) => e.id.equals(id)))
+          .write(BudgetEntriesCompanion(category: Value(cat)));
+      changed = 1;
+      if (!applyToSimilar) return;
+
+      final key = (entry.payee != null && entry.payee!.trim().isNotEmpty
+              ? entry.payee!
+              : entry.description ?? '')
+          .trim();
+      if (key.isEmpty) return;
+      final lower = key.toLowerCase();
+      final similar = await (_db.select(_db.budgetEntries)
+            ..where((e) =>
+                e.profileId.equals(profileId) &
+                e.id.isNotValue(id) &
+                (e.description.lower().equals(lower) |
+                    e.payee.lower().equals(lower))))
+          .get();
+      for (final e in similar) {
+        if (e.category == cat) continue;
+        await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
+            .write(BudgetEntriesCompanion(category: Value(cat)));
+        changed++;
+      }
+      final existing = await (_db.select(_db.categoryRules)
+            ..where((r) =>
+                r.profileId.equals(profileId) &
+                r.field.equalsValue(RuleField.description) &
+                r.pattern.lower().equals(lower)))
+          .getSingleOrNull();
+      if (existing == null) {
+        await _db.into(_db.categoryRules).insert(
+              CategoryRulesCompanion.insert(
+                profileId: profileId,
+                field: RuleField.description,
+                pattern: key.length > 128 ? key.substring(0, 128) : key,
+                category: cat,
+              ),
+            );
+      } else if (existing.category != cat) {
+        await (_db.update(_db.categoryRules)
+              ..where((r) => r.id.equals(existing.id)))
+            .write(CategoryRulesCompanion(category: Value(cat)));
+      }
+    });
+    return changed;
+  }
+
   // ---- Splits ----
   //
   // A split breaks one entry's total across more than one category — e.g. a

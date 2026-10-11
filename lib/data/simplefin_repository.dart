@@ -555,7 +555,7 @@ extension SimpleFinRepository on HomebaseRepository {
         // $100 purchase and a $100 refund would pair. Something in the
         // bank's wording has to say it is a transfer or a payment.
         final wording = i.cardId != null
-            ? paymentWords.hasMatch(oText) || paymentWords.hasMatch(iText)
+            ? paymentWords.hasMatch(oText)
             : transferWords.hasMatch(oText) || transferWords.hasMatch(iText);
         if (!named && !wording) continue;
         candidates.add((out: o, inn: i, score: score));
@@ -636,10 +636,12 @@ extension SimpleFinRepository on HomebaseRepository {
       return null;
     }
 
-    // ---- pass 2: card credits that are payments from somewhere unlinked ----
+    // ---- pass 2: every other credit on a card is a payment ----
+    // Money arriving on a card can only be a payment (or a refund, which
+    // settles part of the balance the same way), never income, whatever
+    // the bank calls it. Its source is simply not in Clearly.
     for (final i in ins) {
       if (used.contains(i.id) || i.cardId == null) continue;
-      if (!paymentWords.hasMatch(i.description ?? '')) continue;
       await _db.transaction(() async {
         final have = await existingPayment(i.cardId!, i.amountCents, i.date);
         if (have == null) {

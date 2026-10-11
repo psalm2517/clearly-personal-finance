@@ -772,4 +772,72 @@ void main() {
     expect(by['CHK:m3']!.category, 'Eating out',
         reason: 'a rule beats the merchant code');
   });
+
+  test('any credit on a card is a payment, never income', () async {
+    bridge.accounts = [
+      {
+        'id': 'CC',
+        'name': 'Visa (1111)',
+        'balance': '-300.00',
+        'transactions': [
+          txn('a', '25.00', 'Merchant Credit', posted: DateTime(2026, 6, 9)),
+          txn('b', '60.00', 'Statement Credit', posted: DateTime(2026, 6, 10)),
+          txn('c', '-15.00', 'LUNCH', posted: DateTime(2026, 6, 9)),
+        ],
+      },
+    ];
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: (await feed()).single.id,
+        kind: FeedTarget.card);
+    await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+
+    final entries = await db.select(db.budgetEntries).get();
+    expect(entries.map((e) => e.description), ['LUNCH']);
+    expect(entries.where((e) => e.type == EntryType.income), isEmpty);
+    final payments = await db.select(db.payments).get();
+    expect(payments.map((p) => p.amountCents).toSet(), {2500, 6000});
+  });
+
+  test('categorizing one transaction can move all from the same merchant '
+      'and remember it', () async {
+    final a = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId, name: 'A', type: AccountType.checking));
+    Future<int> add(String desc, String payee) =>
+        repo.addBudgetEntry(BudgetEntriesCompanion.insert(
+          profileId: profileId,
+          date: DateTime(2026, 6, 10),
+          amountCents: 1000,
+          type: EntryType.expense,
+          description: Value(desc),
+          payee: Value(payee),
+          accountId: Value(a),
+        ));
+    final first = await add('Dunkin 1', "Dunkin'");
+    await add('Dunkin 2', "dunkin'");
+    await add('Other store', 'Shop');
+
+    final changed = await repo.setEntryCategory(
+        profileId: profileId,
+        id: first,
+        category: 'Dining',
+        applyToSimilar: true);
+    expect(changed, 2);
+    final entries = await db.select(db.budgetEntries).get();
+    expect(entries.where((e) => e.category == 'Dining'), hasLength(2));
+    expect(entries.firstWhere((e) => e.payee == 'Shop').category, 'Other');
+    final rule = (await db.select(db.categoryRules).get()).single;
+    expect(rule.pattern.toLowerCase(), "dunkin'");
+    expect(rule.category, 'Dining');
+
+    // Without applyToSimilar only the one entry moves and no rule is made.
+    final solo = await add('Cafe', 'Cafe');
+    expect(
+        await repo.setEntryCategory(
+            profileId: profileId, id: solo, category: 'Coffee'),
+        1);
+    expect(await db.select(db.categoryRules).get(), hasLength(1));
+  });
 }
