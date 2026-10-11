@@ -46,6 +46,11 @@ class ClearlyApp extends ConsumerWidget {
       // One theme, built from the chosen flavor and accent — the platform's
       // own light/dark setting does not override an explicit choice.
       theme: themeFor(flavor, accent),
+      // Switch flavors instantly. The default cross-fade lerps text and
+      // surface colors independently, so for a moment (longer when frames
+      // are slow) text and background are both mid-grey and the screen
+      // looks washed out and unreadable.
+      themeAnimationDuration: Duration.zero,
       home: const _Root(),
     );
   }
