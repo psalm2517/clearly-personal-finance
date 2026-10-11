@@ -287,4 +287,92 @@ void main() {
     expect(await db.select(db.accounts).get(), hasLength(1));
     expect(await db.select(db.budgetEntries).get(), hasLength(2));
   });
+
+  test('an entry typed in by hand is claimed by its bank transaction, not '
+      'duplicated', () async {
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    final f = await feed();
+    final accountId = await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: f.firstWhere((a) => a.name == 'Everyday').id,
+        kind: FeedTarget.account);
+    // The person already logged the coffee, a day off from the bank's date.
+    await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+        profileId: profileId,
+        date: DateTime(2026, 6, 9),
+        amountCents: 450,
+        type: EntryType.expense,
+        description: const Value('coffee'),
+        accountId: Value(accountId)));
+
+    final r = await repo.syncSimpleFin(
+        profileId: profileId, client: client, now: now);
+    expect(r.matchedTransactions, 1);
+    expect(r.newTransactions, 1, reason: 'only the payroll is new');
+
+    final entries = await db.select(db.budgetEntries).get();
+    expect(entries, hasLength(2));
+    final coffee = entries.firstWhere((e) => e.description == 'coffee');
+    expect(coffee.externalId, 'CHK:a', reason: 'claimed by the feed id');
+
+    // Running again finds it known and adds nothing.
+    final again = await repo.syncSimpleFin(
+        profileId: profileId, client: client, now: now);
+    expect(again.newTransactions + again.matchedTransactions, 0);
+  });
+
+  test('the first sync rebuilds daily balances from the transactions',
+      () async {
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    final f = await feed();
+    final accountId = await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: f.firstWhere((a) => a.name == 'Everyday').id,
+        kind: FeedTarget.account);
+    await repo.syncSimpleFin(
+        profileId: profileId,
+        client: client,
+        now: now,
+        lookback: const Duration(days: 30));
+
+    // Balance today is 1500.00. Payroll (+2000) and coffee (-4.50) posted
+    // on Jun 10, so before that day the balance was 1500 - 2000 + 4.50.
+    final snaps = await (db.select(db.accountBalanceSnapshots)
+          ..where((s) => s.accountId.equals(accountId)))
+        .get();
+    int on(DateTime d) => snaps
+        .firstWhere((s) =>
+            s.date.year == d.year && s.date.month == d.month && s.date.day == d.day)
+        .balanceCents;
+    expect(on(DateTime(2026, 6, 9)), 150000 - 200000 + 450);
+    expect(on(DateTime(2026, 6, 10)), 150000, reason: 'end of the posting day');
+    expect(on(DateTime(2026, 6, 14)), 150000);
+
+    // Net worth history exists for those days too, so the chart has a line.
+    final nw = await db.select(db.netWorthSnapshots).get();
+    expect(nw.length, greaterThan(20));
+  });
+
+  test('a linked account balance cannot be edited by hand', () async {
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    final f = await feed();
+    final id = await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: f.firstWhere((a) => a.name == 'Everyday').id,
+        kind: FeedTarget.account);
+    expect(await repo.isSimpleFinLinked(FeedTarget.account, id), isTrue);
+
+    await repo.upsertAccount(AccountsCompanion(
+        id: Value(id),
+        profileId: Value(profileId),
+        name: const Value('Renamed'),
+        type: const Value(AccountType.savings),
+        balanceCents: const Value(1)));
+    final a = (await db.select(db.accounts).get()).single;
+    expect(a.name, 'Renamed', reason: 'other fields still edit');
+    expect(a.balanceCents, 150000, reason: 'the bank owns the balance');
+  });
 }

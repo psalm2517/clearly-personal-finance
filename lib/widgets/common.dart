@@ -344,6 +344,7 @@ class DialogField extends StatelessWidget {
     this.autofocus = false,
     this.helper,
     this.onSubmitted,
+    this.enabled = true,
   });
 
   final TextEditingController controller;
@@ -351,6 +352,9 @@ class DialogField extends StatelessWidget {
   final bool obscure;
   final bool autofocus;
   final String? helper;
+
+  /// False shows the value but does not let it be edited.
+  final bool enabled;
 
   /// Runs on Enter. Defaults to closing the dialog with a `true` result,
   /// which every edit dialog treats as "save".
@@ -362,6 +366,7 @@ class DialogField extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: controller,
+        enabled: enabled,
         obscureText: obscure,
         autofocus: autofocus,
         textInputAction: TextInputAction.done,

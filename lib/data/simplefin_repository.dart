@@ -4,6 +4,7 @@ part of 'repository.dart';
 class SimpleFinSyncResult {
   const SimpleFinSyncResult({
     this.newTransactions = 0,
+    this.matchedTransactions = 0,
     this.syncedAccounts = 0,
     this.unmappedAccounts = 0,
     this.messages = const [],
@@ -12,6 +13,10 @@ class SimpleFinSyncResult {
 
   /// Transactions imported this time (already-seen ones are not counted).
   final int newTransactions;
+
+  /// Feed transactions that turned out to be entries already typed in by
+  /// hand. They are claimed rather than added a second time.
+  final int matchedTransactions;
 
   /// Linked accounts whose balance and transactions were refreshed.
   final int syncedAccounts;
@@ -27,6 +32,7 @@ class SimpleFinSyncResult {
 
   SimpleFinSyncResult plus(SimpleFinSyncResult o) => SimpleFinSyncResult(
     newTransactions: newTransactions + o.newTransactions,
+    matchedTransactions: matchedTransactions + o.matchedTransactions,
     syncedAccounts: syncedAccounts + o.syncedAccounts,
     unmappedAccounts: unmappedAccounts + o.unmappedAccounts,
     messages: [...messages, ...o.messages],
@@ -174,6 +180,7 @@ extension SimpleFinRepository on HomebaseRepository {
         _db.simpleFinFeedAccounts,
       )..where((f) => f.connectionId.equals(conn.id))).get();
       var imported = 0;
+      var matched = 0;
       var synced = 0;
       var unmapped = 0;
       for (final f in feed) {
@@ -186,13 +193,23 @@ extension SimpleFinRepository on HomebaseRepository {
           case FeedTarget.card:
           case FeedTarget.loan:
             synced++;
-            imported += await _applyFeedAccount(
+            final r = await _applyFeedAccount(
               profileId: conn.profileId,
               feed: f,
               transactions: (transactions[f.remoteId] ?? {}).values.toList(),
             );
+            imported += r.imported;
+            matched += r.matched;
         }
       }
+
+      await _backfillHistory(
+        profileId: conn.profileId,
+        feed: feed,
+        transactions: transactions,
+        start: start,
+        now: now,
+      );
 
       final parts = <String>[
         if (imported > 0) '$imported new' else 'Up to date',
@@ -202,6 +219,7 @@ extension SimpleFinRepository on HomebaseRepository {
       await _setSyncStatus(conn.id, now, parts.join('; '));
       return SimpleFinSyncResult(
         newTransactions: imported,
+        matchedTransactions: matched,
         syncedAccounts: synced,
         unmappedAccounts: unmapped,
         messages: messages,
@@ -213,14 +231,16 @@ extension SimpleFinRepository on HomebaseRepository {
   }
 
   /// Sets the linked entity's balance from the feed and imports transactions
-  /// it has not seen. Returns how many were imported.
-  Future<int> _applyFeedAccount({
+  /// it has not seen. Anything that is really an entry already typed in by
+  /// hand is claimed instead of added again.
+  Future<({int imported, int matched})> _applyFeedAccount({
     required int profileId,
     required SimpleFinFeedAccount feed,
     required List<SimpleFinTransaction> transactions,
   }) async {
+    const none = (imported: 0, matched: 0);
     final targetId = feed.targetId;
-    if (targetId == null) return 0;
+    if (targetId == null) return none;
 
     return _db.transaction(() async {
       // Balances. Liabilities arrive negative (owed), and Clearly stores the
@@ -245,15 +265,15 @@ extension SimpleFinRepository on HomebaseRepository {
               .write(LoansCompanion(balanceCents: Value(-feed.balanceCents)));
         case FeedTarget.unmapped:
         case FeedTarget.ignored:
-          return 0;
+          return none;
       }
 
       // Loans carry no per-transaction register in Clearly (payments are
       // logged as payments), so only their balance follows the feed.
-      if (feed.target == FeedTarget.loan) return 0;
+      if (feed.target == FeedTarget.loan) return none;
 
       final posted = transactions.where((t) => !t.pending).toList();
-      if (posted.isEmpty) return 0;
+      if (posted.isEmpty) return none;
       final known =
           (await (_db.selectOnly(_db.budgetEntries)
                     ..addColumns([_db.budgetEntries.externalId])
@@ -270,7 +290,51 @@ extension SimpleFinRepository on HomebaseRepository {
         for (final t in posted)
           if (!known.contains('${feed.remoteId}:${t.id}')) t,
       ];
-      if (fresh.isEmpty) return 0;
+      if (fresh.isEmpty) return none;
+
+      // Entries typed in by hand that are this same transaction: same
+      // account, same signed amount, within a few days of when it posted.
+      // The bank is the source of truth, so the feed claims them (giving
+      // them its id) rather than adding a duplicate beside them.
+      final candidates = await (_db.select(_db.budgetEntries)
+            ..where((e) =>
+                e.profileId.equals(profileId) &
+                e.externalId.isNull() &
+                (feed.target == FeedTarget.account
+                    ? e.accountId.equals(targetId)
+                    : e.cardId.equals(targetId))))
+          .get();
+      final claimed = <int>{};
+      final toInsert = <SimpleFinTransaction>[];
+      var matched = 0;
+      DateTime day(DateTime d) => DateTime.utc(d.year, d.month, d.day);
+      fresh.sort((a, b) => a.posted.compareTo(b.posted));
+      for (final t in fresh) {
+        BudgetEntry? best;
+        var bestGap = 4;
+        for (final c in candidates) {
+          if (claimed.contains(c.id)) continue;
+          final signed =
+              c.type == EntryType.income ? c.amountCents : -c.amountCents;
+          if (signed != t.amountCents) continue;
+          final gap = day(c.date).difference(day(t.posted)).inDays.abs();
+          if (gap < bestGap) {
+            best = c;
+            bestGap = gap;
+          }
+        }
+        if (best == null) {
+          toInsert.add(t);
+          continue;
+        }
+        claimed.add(best.id);
+        matched++;
+        await (_db.update(_db.budgetEntries)
+              ..where((e) => e.id.equals(best!.id)))
+            .write(BudgetEntriesCompanion(
+                externalId: Value('${feed.remoteId}:${t.id}')));
+      }
+      if (toInsert.isEmpty) return (imported: 0, matched: matched);
 
       final batchId = await _db
           .into(_db.importBatches)
@@ -279,7 +343,7 @@ extension SimpleFinRepository on HomebaseRepository {
               profileId: profileId,
               sourceFilename: 'SimpleFIN: ${feed.name}',
               importedAt: DateTime.now(),
-              rowCount: fresh.length,
+              rowCount: toInsert.length,
               accountId: Value(
                 feed.target == FeedTarget.account ? targetId : null,
               ),
@@ -288,7 +352,7 @@ extension SimpleFinRepository on HomebaseRepository {
               balanceAdjustmentCents: const Value(0),
             ),
           );
-      for (final t in fresh) {
+      for (final t in toInsert) {
         final category =
             await categorize(
               profileId: profileId,
@@ -315,8 +379,120 @@ extension SimpleFinRepository on HomebaseRepository {
               ),
             );
       }
-      return fresh.length;
+      return (imported: toInsert.length, matched: matched);
     });
+  }
+
+  /// Fills in days the app never saw. The feed gives today's balance and
+  /// the transactions since, so each earlier day's balance is today's minus
+  /// everything that posted after it. That lets the net worth chart and the
+  /// account sparklines cover the whole window straight away instead of
+  /// growing one day per launch.
+  ///
+  /// Only days with no snapshot are written, so real recorded points are
+  /// never replaced. Accounts that are not linked to the feed are held at
+  /// their current balance for those days, which is an approximation.
+  Future<void> _backfillHistory({
+    required int profileId,
+    required List<SimpleFinFeedAccount> feed,
+    required Map<String, Map<String, SimpleFinTransaction>> transactions,
+    required DateTime start,
+    required DateTime now,
+  }) async {
+    final today = DateTime(now.year, now.month, now.day);
+    final days = <DateTime>[];
+    for (var d = DateTime(start.year, start.month, start.day);
+        d.isBefore(today);
+        d = DateTime(d.year, d.month, d.day + 1)) {
+      days.add(d);
+    }
+    if (days.isEmpty) return;
+
+    // Amount owed or held at the end of each day, for each linked target.
+    final history = <(FeedTarget, int), Map<DateTime, int>>{};
+    for (final f in feed) {
+      final id = f.targetId;
+      if (id == null ||
+          (f.target != FeedTarget.account &&
+              f.target != FeedTarget.card &&
+              f.target != FeedTarget.loan)) {
+        continue;
+      }
+      final txns = (transactions[f.remoteId] ?? {})
+          .values
+          .where((t) => !t.pending)
+          .toList();
+      final byDay = <DateTime, int>{};
+      for (final d in days) {
+        final after = txns
+            .where((t) => t.posted.isAfter(d))
+            .fold(0, (sum, t) => sum + t.amountCents);
+        final feedBalance = f.balanceCents - after;
+        // Liabilities are negative in the feed; Clearly stores amount owed.
+        byDay[d] = f.target == FeedTarget.account ? feedBalance : -feedBalance;
+      }
+      history[(f.target, id)] = byDay;
+    }
+    if (history.isEmpty) return;
+
+    final accounts = await (_db.select(_db.accounts)
+          ..where((a) => a.profileId.equals(profileId)))
+        .get();
+    final cards = await (_db.select(_db.creditCards)
+          ..where((c) => c.profileId.equals(profileId)))
+        .get();
+    final loans = await (_db.select(_db.loans)
+          ..where((l) => l.profileId.equals(profileId)))
+        .get();
+
+    await _db.transaction(() async {
+      for (final d in days) {
+        var assets = 0;
+        var debts = 0;
+        for (final a in accounts) {
+          final b = history[(FeedTarget.account, a.id)]?[d] ?? a.balanceCents;
+          assets += b;
+          if (history.containsKey((FeedTarget.account, a.id))) {
+            await _db.into(_db.accountBalanceSnapshots).insert(
+                  AccountBalanceSnapshotsCompanion.insert(
+                    profileId: profileId,
+                    accountId: a.id,
+                    date: d,
+                    balanceCents: b,
+                  ),
+                  mode: InsertMode.insertOrIgnore,
+                );
+          }
+        }
+        for (final c in cards) {
+          debts += history[(FeedTarget.card, c.id)]?[d] ?? c.balanceCents;
+        }
+        for (final l in loans) {
+          debts += history[(FeedTarget.loan, l.id)]?[d] ?? l.balanceCents;
+        }
+        await _db.into(_db.netWorthSnapshots).insert(
+              NetWorthSnapshotsCompanion.insert(
+                profileId: profileId,
+                date: d,
+                totalAssetsCents: assets,
+                totalDebtCents: debts,
+                netWorthCents: assets - debts,
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+    });
+  }
+
+  /// Whether the bank feed owns this account, card or loan's balance. A
+  /// linked balance is not editable by hand: the next sync would overwrite
+  /// it anyway.
+  Future<bool> isSimpleFinLinked(FeedTarget target, int id) async {
+    final row = await (_db.select(_db.simpleFinFeedAccounts)
+          ..where((f) =>
+              f.target.equalsValue(target) & f.targetId.equals(id)))
+        .getSingleOrNull();
+    return row != null;
   }
 
   Future<void> _upsertFeedAccounts(

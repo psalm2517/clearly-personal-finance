@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/database.dart';
+import '../data/repository.dart';
 import '../main.dart';
 import '../theme/catppuccin.dart';
 import '../util/money.dart';
@@ -217,6 +218,10 @@ class AccountsScreen extends ConsumerWidget {
       text: existing == null ? '' : (existing.balanceCents / 100).toString(),
     );
     var type = existing?.type ?? AccountType.checking;
+    final synced = existing != null &&
+        await ref
+            .read(repositoryProvider)
+            .isSimpleFinLinked(FeedTarget.account, existing.id);
 
     final saved = await showDialog<bool>(
       context: context,
@@ -260,7 +265,14 @@ class AccountsScreen extends ConsumerWidget {
                     onChanged: (v) => setLocal(() => type = v!),
                   ),
                   const SizedBox(height: 12),
-                  DialogField(balance, 'Current balance (\$)'),
+                  DialogField(
+                    balance,
+                    'Current balance (\$)',
+                    enabled: !synced,
+                    helper: synced
+                        ? 'Managed by Clearly Sync. It updates from your bank.'
+                        : null,
+                  ),
                 ],
               ),
             ),

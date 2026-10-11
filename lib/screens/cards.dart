@@ -214,6 +214,10 @@ class CardsScreen extends ConsumerWidget {
   Future<void> _edit(
       BuildContext context, WidgetRef ref, CreditCard? existing) async {
     final profileId = ref.read(activeProfileProvider)!.id;
+    final synced = existing != null &&
+        await ref
+            .read(repositoryProvider)
+            .isSimpleFinLinked(FeedTarget.card, existing.id);
     final name = TextEditingController(text: existing?.name);
     final balance = TextEditingController(
         text: existing == null ? '' : (existing.balanceCents / 100).toString());
@@ -254,7 +258,10 @@ class CardsScreen extends ConsumerWidget {
             children: [
               DialogField(name, 'Name', autofocus: true),
               DialogField(balance, 'Balance (\$)',
-                  helper: 'What you owe right now'),
+                  enabled: !synced,
+                  helper: synced
+                      ? 'Managed by Clearly Sync. It updates from your bank.'
+                      : 'What you owe right now'),
               DialogField(limit, 'Credit limit (\$)'),
               DialogField(apr, 'APR (%)'),
               DialogField(annualFee, 'Annual fee (\$)'),

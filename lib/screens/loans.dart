@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/database.dart';
+import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
 import '../widgets/common.dart';
@@ -169,6 +170,10 @@ class LoansScreen extends ConsumerWidget {
     Loan? existing,
   ) async {
     final profileId = ref.read(activeProfileProvider)!.id;
+    final synced = existing != null &&
+        await ref
+            .read(repositoryProvider)
+            .isSimpleFinLinked(FeedTarget.loan, existing.id);
     final name = TextEditingController(text: existing?.name);
     final balance = TextEditingController(
       text: existing == null ? '' : (existing.balanceCents / 100).toString(),
@@ -197,7 +202,14 @@ class LoansScreen extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DialogField(name, 'Name', autofocus: true),
-                DialogField(balance, 'Balance (\$)'),
+                DialogField(
+                  balance,
+                  'Balance (\$)',
+                  enabled: !synced,
+                  helper: synced
+                      ? 'Managed by Clearly Sync. It updates from your bank.'
+                      : null,
+                ),
                 DialogField(original, 'Original amount (\$)'),
                 DialogField(apr, 'APR (%)'),
                 DialogField(payment, 'Monthly payment (\$)'),

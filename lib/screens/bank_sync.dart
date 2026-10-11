@@ -207,12 +207,13 @@ class _BankSyncSectionState extends ConsumerState<BankSyncSection> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SectionHeader(
-              'Bank sync',
+              'Clearly Sync',
               icon: Icons.sync_outlined,
               info: const InfoButton(
-                title: 'How bank sync works',
+                title: 'How Clearly Sync works',
                 body: [
-                  'Clearly reads your accounts through SimpleFIN, an '
+                  'Clearly Sync is a mode of this app, not a separate service. '
+                      'It reads your accounts through SimpleFIN, an '
                       'independent service that gives apps a read-only feed. '
                       'Your bank login stays with SimpleFIN. Clearly only '
                       'ever receives balances and transactions.',
@@ -222,9 +223,18 @@ class _BankSyncSectionState extends ConsumerState<BankSyncSection> {
                   'Accounts that appear in the feed are not imported until '
                       'you decide where each one belongs, so nothing lands '
                       'in the wrong place.',
-                  'Balances follow what the bank reports. Transactions are '
-                      'imported once each, and every sync can be undone as '
-                      'a batch from the import history.',
+                  'Once an account is linked, your bank is the source of '
+                      'truth for it. Its balance follows what the bank '
+                      'reports and cannot be edited by hand, and each '
+                      'transaction is imported once. An entry you already '
+                      'typed in is matched to its bank transaction rather '
+                      'than duplicated. Every sync can be undone as a batch '
+                      'from the import history.',
+                  'History builds locally. The Bridge only reaches back '
+                      'about 90 days, but everything Clearly saves is kept, '
+                      'so six months and year-to-date fill in as it runs. '
+                      'The first sync also reconstructs daily balances for '
+                      'the days it can see.',
                   'The SimpleFIN Bridge allows about 24 refreshes a day, so '
                       'syncing is not meant to be instant.',
                   'This is optional. Without it, everything works by hand.',

@@ -168,6 +168,17 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertAccount(AccountsCompanion entry) async {
+    // The bank feed owns a linked account's balance, so an edit cannot
+    // change it: the next sync would only put it back.
+    if (entry.id.present &&
+        await isSimpleFinLinked(FeedTarget.account, entry.id.value)) {
+      final current = await (_db.select(_db.accounts)
+            ..where((a) => a.id.equals(entry.id.value)))
+          .getSingleOrNull();
+      if (current != null) {
+        entry = entry.copyWith(balanceCents: Value(current.balanceCents));
+      }
+    }
     // Not insertOnConflictUpdate + a follow-up select by the returned id:
     // when the upsert takes the update branch (an existing account being
     // edited), the id it returns is last_insert_rowid(), which an UPDATE
@@ -447,6 +458,15 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertCard(CreditCardsCompanion entry) async {
+    if (entry.id.present &&
+        await isSimpleFinLinked(FeedTarget.card, entry.id.value)) {
+      final current = await (_db.select(_db.creditCards)
+            ..where((c) => c.id.equals(entry.id.value)))
+          .getSingleOrNull();
+      if (current != null) {
+        entry = entry.copyWith(balanceCents: Value(current.balanceCents));
+      }
+    }
     final id = await _upsertId(_db.creditCards, entry);
     await recordNetWorthSnapshot(profileId: entry.profileId.value);
     return id;
@@ -494,6 +514,15 @@ class HomebaseRepository {
           .watch();
 
   Future<int> upsertLoan(LoansCompanion entry) async {
+    if (entry.id.present &&
+        await isSimpleFinLinked(FeedTarget.loan, entry.id.value)) {
+      final current = await (_db.select(_db.loans)
+            ..where((l) => l.id.equals(entry.id.value)))
+          .getSingleOrNull();
+      if (current != null) {
+        entry = entry.copyWith(balanceCents: Value(current.balanceCents));
+      }
+    }
     final id = await _upsertId(_db.loans, entry);
     await recordNetWorthSnapshot(profileId: entry.profileId.value);
     return id;
