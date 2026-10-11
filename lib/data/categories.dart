@@ -44,15 +44,21 @@ const Map<String, String> categoryHints = {
   Cat.financial:
       'Insurance, bank and ATM fees, interest, loan and car payments',
   Cat.medical: 'Doctor, dentist, vision, pharmacy, urgent care, vet',
-  Cat.personal: 'Shopping, clothing, salon, barber, gym',
-  Cat.entertainment: 'Streaming, music, games, movies, events, tickets',
-  Cat.subscriptions: 'Software, cloud, apps and other recurring services',
+  Cat.personal: 'Shopping, clothing, salon, barber, gym, personal care',
+  Cat.entertainment:
+      'Streaming and music (Spotify, Netflix), games (Steam), movies, events, '
+      'tickets, betting',
+  Cat.subscriptions:
+      'Software and tools you pay for: cloud storage, hosting, AI tools, '
+      'VPN, app subscriptions',
   Cat.travel: 'Flights, hotels, rentals, trips',
   Cat.education: 'Tuition, books, courses',
   Cat.family: 'Childcare, kids, pet food and supplies',
   Cat.gifts: 'Gifts and charity',
   Cat.taxes: 'Taxes, fines, government fees',
-  Cat.transfers: 'Money you sent to people or to yourself',
+  Cat.transfers:
+      'Money moving between your own accounts and brokerage deposits. '
+      'Not counted as income or spending',
 };
 
 /// Spending categories in the order they are offered.
@@ -97,3 +103,23 @@ const legacyCategoryNames = <String, String>{
   'Taxes & fees': Cat.taxes,
   'Peer payments': Cat.transfers,
 };
+
+/// Built-in categories alphabetically (with "Other" last), then the
+/// person's own alphabetically. Used wherever a category is chosen so the
+/// list is always in the same, findable order.
+({List<String> builtIn, List<String> yours}) orderedCategories(
+  Iterable<String> used,
+) {
+  final builtIn = [
+    for (final c in defaultSpendingCategories)
+      if (c != Cat.other) c,
+  ]..sort();
+  final yours = {
+    for (final c in used)
+      if (!defaultSpendingCategories.contains(c) &&
+          c != 'Split' &&
+          c.trim().isNotEmpty)
+        c,
+  }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return (builtIn: [...builtIn, Cat.other], yours: yours);
+}

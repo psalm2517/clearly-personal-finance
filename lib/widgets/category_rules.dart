@@ -102,10 +102,8 @@ class _RulesDialogState extends ConsumerState<_RulesDialog> {
                 (a, b) =>
                     a.pattern.toLowerCase().compareTo(b.pattern.toLowerCase()),
               );
-        final known = <String>{
-          ...defaultSpendingCategories,
-          for (final r in rules) r.category,
-        }.toList();
+        final ordered = orderedCategories([for (final r in rules) r.category]);
+        final known = [...ordered.builtIn, ...ordered.yours];
 
         return AlertDialog(
           title: const Text('Category rules'),

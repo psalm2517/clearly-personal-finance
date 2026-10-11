@@ -25,4 +25,25 @@ void main() {
     expect(
         suggestedRules.any((r) => r.keyword == 'fanduel'), isTrue);
   });
+
+  test('categories are listed alphabetically, Other last, then your own', () {
+    final o = orderedCategories(['Zebra', 'apple', 'Food & Dining', 'Split']);
+    expect(o.builtIn.first, 'Education');
+    expect(o.builtIn.last, 'Other');
+    expect(o.builtIn, containsAll(['Food & Dining', 'Transportation']));
+    final names = o.builtIn.where((c) => c != 'Other').toList();
+    expect([...names]..sort(), names);
+    expect(o.yours, ['apple', 'Zebra'], reason: 'case-insensitive, no Split');
+  });
+
+  test('each built-in category has a hint, and the three easily confused '
+      'ones say what belongs', () {
+    for (final c in defaultSpendingCategories.where((c) => c != Cat.other)) {
+      expect(categoryHints[c], isNotNull, reason: c);
+    }
+    expect(categoryHints[Cat.entertainment], contains('Spotify'));
+    expect(categoryHints[Cat.entertainment], contains('Steam'));
+    expect(categoryHints[Cat.subscriptions], contains('cloud'));
+    expect(categoryHints[Cat.personal], contains('salon'));
+  });
 }

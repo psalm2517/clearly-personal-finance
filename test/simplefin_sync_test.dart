@@ -1158,4 +1158,31 @@ void main() {
       expect(entries.map((e) => e.description), ['To the jar']);
     });
   });
+
+  test('money moving between your own accounts is neither income nor '
+      'spending in the totals', () async {
+    final a = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId, name: 'A', type: AccountType.checking));
+    final now0 = DateTime.now();
+    Future<void> add(String category, EntryType type, int cents) =>
+        db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+            profileId: profileId,
+            date: DateTime(now0.year, now0.month, 1),
+            amountCents: cents,
+            type: type,
+            category: Value(category),
+            accountId: Value(a)));
+    await add('Transfers', EntryType.income, 51024);
+    await add('Transfers', EntryType.expense, 5000);
+    await add('Groceries', EntryType.expense, 3000);
+    await add('Paycheck', EntryType.income, 100000);
+
+    final entries = await db.select(db.budgetEntries).get();
+    final rows = HomebaseRepository.expandForCategoryTotals(entries, const {});
+    expect(rows.map((r) => r.category).toSet(), {'Groceries', 'Paycheck'});
+
+    final month = (await repo.watchCashflow(profileId: profileId).first).last;
+    expect(month.incomeCents, 100000);
+    expect(month.expenseCents, 3000);
+  });
 }

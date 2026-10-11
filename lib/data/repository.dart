@@ -479,8 +479,13 @@ class HomebaseRepository {
             for (var i = 0; i < months; i++)
               () {
                 final m = DateTime(now.year, now.month - (months - 1) + i);
+                // Money moving between your own accounts is neither earned
+                // nor spent, so it is left out of both bars.
                 final inMonth = rows.where(
-                  (e) => e.date.year == m.year && e.date.month == m.month,
+                  (e) =>
+                      e.date.year == m.year &&
+                      e.date.month == m.month &&
+                      e.category != Cat.transfers,
                 );
                 return (
                   month: m,
@@ -1764,6 +1769,8 @@ class HomebaseRepository {
   ) {
     final rows = <({String category, int amountCents, EntryType type})>[];
     for (final e in entries) {
+      // Moving money between your own accounts is not income or spending.
+      if (e.category == Cat.transfers) continue;
       final splits = splitsByEntry[e.id];
       if (splits == null || splits.isEmpty) {
         rows.add((

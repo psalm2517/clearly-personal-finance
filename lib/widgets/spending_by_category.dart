@@ -6,6 +6,7 @@ import '../data/categories.dart';
 import '../data/database.dart';
 import '../main.dart';
 import '../util/money.dart';
+import 'category_picker.dart';
 
 /// One line of a category: either a whole entry or one slice of a split.
 class _Line {
@@ -58,7 +59,9 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
   Map<String, List<_Line>> _group() {
     final by = <String, List<_Line>>{};
     for (final e in widget.entries) {
-      if (e.type != EntryType.expense) continue;
+      if (e.type != EntryType.expense || e.category == Cat.transfers) {
+        continue;
+      }
       final slices = widget.splits[e.id];
       if (slices == null || slices.isEmpty) {
         by
@@ -388,20 +391,16 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in widget.known)
-                    ChoiceChip(
-                      label: Text(c),
-                      selected: _custom.text.trim().isEmpty && _picked == c,
-                      onSelected: (_) => setState(() {
-                        _custom.clear();
-                        _picked = c;
-                      }),
-                    ),
-                ],
+              SizedBox(
+                height: 300,
+                child: CategoryPicker(
+                  used: widget.known,
+                  selected: _custom.text.trim().isEmpty ? _picked : null,
+                  onSelected: (c) => setState(() {
+                    _custom.clear();
+                    _picked = c;
+                  }),
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -486,20 +485,17 @@ class _MoveAllDialogState extends State<_MoveAllDialog> {
                 'in this category moves, in every month.',
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in widget.known.where((c) => c != widget.from))
-                    ChoiceChip(
-                      label: Text(c),
-                      selected: _custom.text.trim().isEmpty && _picked == c,
-                      onSelected: (_) => setState(() {
-                        _custom.clear();
-                        _picked = c;
-                      }),
-                    ),
-                ],
+              SizedBox(
+                height: 300,
+                child: CategoryPicker(
+                  used: widget.known,
+                  exclude: widget.from,
+                  selected: _custom.text.trim().isEmpty ? _picked : null,
+                  onSelected: (c) => setState(() {
+                    _custom.clear();
+                    _picked = c;
+                  }),
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
