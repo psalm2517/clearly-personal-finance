@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-lightgrey.svg)](#building)
 [![Flutter](https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
-[![Version](https://img.shields.io/badge/version-0.5.0-informational.svg)](https://github.com/psalm2517/clearly-personal-finance/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-informational.svg)](https://github.com/psalm2517/clearly-personal-finance/releases)
 
-### [⬇ Download for Linux](https://github.com/psalm2517/clearly-personal-finance/releases/download/v0.5.0/clearly-linux-x64-v0.5.0.tar.gz)
+### [⬇ Download for Linux](https://github.com/psalm2517/clearly-personal-finance/releases/download/v0.6.0/clearly-linux-x64-v0.6.0.tar.gz)
 
 __Knowing your financial health shouldn't cost you $15 a month.__ 
 
@@ -77,9 +77,27 @@ date.
 
 ![Goals](docs/screenshots/goals.png)
 
-**Dashboard.** Net worth trend and breakdown, a 60-day cash balance
-projection, credit utilization, income vs spending, upcoming bills and a credit score
+**Dashboard.** Net worth trend and breakdown, a 30, 60 or 90 day cash
+balance projection, credit utilization, income vs spending, upcoming bills and a credit score
 history you log yourself.
+
+## Clearly Sync
+
+An optional mode that reads your accounts through
+[SimpleFIN](https://www.simplefin.org/), a read-only bank feed you pay for
+directly ($1.50 a month or $15 a year). Clearly itself stays free, and it
+works exactly the same by hand without it.
+
+Once an account is linked, the bank is the source of truth for it: the
+balance follows what the bank reports, every transaction is imported once,
+and a transfer or card payment that shows up on both sides is recorded as
+one movement instead of spending plus income. History builds on your own
+computer, so six months and year to date fill in as it runs. It syncs when
+you press Sync now, and once a day at 1:30 AM while Clearly is open.
+
+Categories are yours: you make rules like "FANDUEL goes to Entertainment",
+and they apply to what is already recorded and to everything that arrives
+later. Nothing is categorized from a built-in merchant list.
 
 ## Privacy between profiles
 
@@ -138,7 +156,7 @@ All database access goes through `HomebaseRepository`; widgets never touch
 Drift directly. That keeps the per-profile rule in one place and leaves room
 for a sync layer later without rewriting the screens.
 
-Schema changes are versioned migrations (currently v17) with tests that
+Schema changes are versioned migrations (currently v25) with tests that
 upgrade a real database of each older shape, so existing data survives an
 update.
 
@@ -149,8 +167,6 @@ Money is stored as integer cents throughout, never floating point.
 Android build
 
 Flatpak packaging
-
-SimpleFin Bridge integration
 
 Ollama integration
 
