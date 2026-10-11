@@ -6,6 +6,58 @@ import '../data/database.dart';
 import '../main.dart';
 import '../util/pin.dart';
 
+/// The name and tagline, in type only. There is deliberately no mark here
+/// until Clearly has a real logo.
+class _Wordmark extends StatelessWidget {
+  const _Wordmark({this.size = 52});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Clearly',
+          style: TextStyle(
+            fontSize: size,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -1.5,
+            height: 1,
+            color: scheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'See clearly.',
+          style: TextStyle(
+            fontSize: 16,
+            letterSpacing: 0.4,
+            color: scheme.primary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One line under the profile card saying what kind of app this is.
+class _Promise extends StatelessWidget {
+  const _Promise();
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Text(
+      'Free and open source  ·  Your data stays on this computer',
+      textAlign: TextAlign.center,
+      style: TextStyle(color: muted, fontSize: 13),
+    );
+  }
+}
+
 /// First run: create the two profiles. After that: pick a profile and enter
 /// its PIN (if set). Non-admins land straight in their own data; the
 /// visibility rule lives in AppShell (only admins get a switcher).
@@ -36,7 +88,10 @@ class _Picker extends ConsumerWidget {
   final List<Profile> profiles;
 
   Future<void> _select(
-      BuildContext context, WidgetRef ref, Profile profile) async {
+    BuildContext context,
+    WidgetRef ref,
+    Profile profile,
+  ) async {
     if (profile.pinHash != null) {
       final ok = await _askPin(context, profile);
       if (!ok) return;
@@ -56,8 +111,7 @@ class _Picker extends ConsumerWidget {
             controller: controller,
             obscureText: true,
             autofocus: true,
-            decoration:
-                InputDecoration(labelText: 'PIN', errorText: error),
+            decoration: InputDecoration(labelText: 'PIN', errorText: error),
             onSubmitted: (_) {
               if (verifyPin(controller.text, profile.pinHash!)) {
                 Navigator.pop(context, true);
@@ -68,8 +122,9 @@ class _Picker extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 if (verifyPin(controller.text, profile.pinHash!)) {
@@ -89,52 +144,81 @@ class _Picker extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final single = profiles.length == 1;
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Who is this?',
-              style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 32),
-          Wrap(
-            alignment: WrapAlignment.center,
-            children: [
-              for (final p in profiles)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () => _select(context, ref, p),
-                    child: Card(
-                      child: SizedBox(
-                        width: 160,
-                        height: 160,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircleAvatar(
-                              radius: 36,
-                              child: Text(p.name.characters.first,
-                                  style: const TextStyle(fontSize: 28)),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(p.name,
-                                style:
-                                    Theme.of(context).textTheme.titleMedium),
-                            if (p.pinHash != null)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4),
-                                child: Icon(Icons.lock_outline, size: 16),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _Wordmark(),
+            const SizedBox(height: 56),
+            Text(
+              single ? 'Welcome back' : 'Who is this?',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              alignment: WrapAlignment.center,
+              children: [
+                for (final p in profiles)
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => _select(context, ref, p),
+                      child: Card(
+                        margin: EdgeInsets.zero,
+                        child: SizedBox(
+                          width: 176,
+                          height: 176,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 36,
+                                backgroundColor: scheme.primary.withValues(
+                                  alpha: 0.18,
+                                ),
+                                foregroundColor: scheme.primary,
+                                child: Text(
+                                  p.name.characters.first.toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                          ],
+                              const SizedBox(height: 14),
+                              Text(
+                                p.name,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              if (p.pinHash != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Icon(
+                                    Icons.lock_outline,
+                                    size: 16,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 48),
+            const _Promise(),
+          ],
+        ),
       ),
     );
   }
@@ -158,11 +242,13 @@ class _FirstRunSetupState extends ConsumerState<_FirstRunSetup> {
     if (_name.text.trim().isEmpty) return;
     setState(() => _busy = true);
     final repo = ref.read(repositoryProvider);
-    final id = await repo.createProfile(ProfilesCompanion.insert(
-      name: _name.text.trim(),
-      isAdmin: const Value(true),
-      pinHash: Value(_pin.text.isEmpty ? null : hashPin(_pin.text)),
-    ));
+    final id = await repo.createProfile(
+      ProfilesCompanion.insert(
+        name: _name.text.trim(),
+        isAdmin: const Value(true),
+        pinHash: Value(_pin.text.isEmpty ? null : hashPin(_pin.text)),
+      ),
+    );
     final profile = await repo.profileById(id);
     if (!mounted || profile == null) return;
     ref.read(loggedInProfileProvider.notifier).state = profile;
@@ -170,45 +256,84 @@ class _FirstRunSetupState extends ConsumerState<_FirstRunSetup> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('Welcome to Clearly',
-                    style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 8),
-                Text(
-                    'This first profile is the admin profile: it can view and '
-                    'switch into every other profile. You can add more '
-                    'profiles later from the Profiles screen.',
-                    style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 20),
-                TextField(
-                    controller: _name,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                        labelText: 'Your name (admin)',
-                        border: OutlineInputBorder())),
-                const SizedBox(height: 12),
-                TextField(
-                    controller: _pin,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                        labelText: 'PIN (optional)',
-                        border: OutlineInputBorder())),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: _busy ? null : _create,
-                  child: const Text('Create admin profile'),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(child: _Wordmark(size: 60)),
+              const SizedBox(height: 40),
+              Text(
+                'Welcome to Clearly',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Personal finance, kept simple. Track your accounts, budget, '
+                'bills and cash flow in one place, with everything stored on '
+                'this computer.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.onSurfaceVariant, height: 1.45),
+              ),
+              const SizedBox(height: 28),
+              Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _name,
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'What should we call you?',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _pin,
+                        obscureText: true,
+                        onSubmitted: (_) => _busy ? null : _create(),
+                        decoration: const InputDecoration(
+                          labelText: 'PIN (optional)',
+                          helperText:
+                              'A PIN keeps other people on this computer out '
+                              'of your profile. It is not encryption.',
+                          helperMaxLines: 2,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton(
+                        onPressed: _busy ? null : _create,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 6),
+                          child: Text('Get started'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'This profile is the admin. You can add others later for '
+                'your household, each with their own data.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+              ),
+              const SizedBox(height: 32),
+              const _Promise(),
+            ],
           ),
         ),
       ),
