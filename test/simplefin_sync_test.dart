@@ -840,4 +840,54 @@ void main() {
         1);
     expect(await db.select(db.categoryRules).get(), hasLength(1));
   });
+
+  test('tidying recategorizes "Other" and drops brokerage trades', () async {
+    bridge.accounts = [
+      {
+        'id': 'CHK',
+        'name': 'Checking',
+        'balance': '100.00',
+        'transactions': [
+          txn('a', '-9.00', "DOMINO'S"),
+          txn('b', '-30.00', 'SQ *ALMOSTAFA LLC'),
+        ],
+      },
+      {
+        'id': 'IRA',
+        'name': 'Brokerage',
+        'balance': '5000.00',
+        'transactions': [
+          txn('t1', '-1200.00', 'YOU BOUGHT VOYAGER TECHNOLOGIES INC COM'),
+          txn('t2', '-300.00', 'REINVESTMENT FIDELITY GOVERNMENT MONEY MARKET'),
+          txn('t3', '4.00', 'DIVIDEND RECEIVED'),
+        ],
+      },
+    ];
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    for (final a in await feed()) {
+      await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: a.id,
+        kind: FeedTarget.account,
+        accountType:
+            a.name == 'Brokerage' ? AccountType.retirement : AccountType.checking,
+      );
+    }
+    await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+
+    final entries = await db.select(db.budgetEntries).get();
+    final byDesc = {for (final e in entries) e.description!: e};
+    expect(byDesc["DOMINO'S"]!.category, 'Dining');
+    expect(byDesc['SQ *ALMOSTAFA LLC']!.category, 'Other');
+    expect(byDesc.containsKey('YOU BOUGHT VOYAGER TECHNOLOGIES INC COM'),
+        isFalse);
+    expect(byDesc.keys.any((d) => d.startsWith('REINVESTMENT')), isFalse);
+    expect(byDesc['DIVIDEND RECEIVED'], isNotNull,
+        reason: 'a dividend is real income');
+
+    // Dropped trades do not come back.
+    await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+    expect((await db.select(db.budgetEntries).get()).length, entries.length);
+  });
 }

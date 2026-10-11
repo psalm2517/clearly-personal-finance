@@ -221,6 +221,7 @@ extension SimpleFinRepository on HomebaseRepository {
       // pair it up first, then see which of what is left is a bill or a
       // paycheck you already track.
       final paired = await reconcileBankMovements(conn.profileId, now);
+      await tidyBankEntries(conn.profileId);
       final recognized = await _recognizeRecurring(conn.profileId, newIds);
 
       await _backfillHistory(
@@ -407,6 +408,7 @@ extension SimpleFinRepository on HomebaseRepository {
               amountCents: t.amountCents,
             ) ??
             categoryForMcc(t.mcc) ??
+            categoryForDescription('$label ${t.memo ?? ''}') ??
             'Other';
         final entryId = await _db
             .into(_db.budgetEntries)
@@ -614,7 +616,6 @@ extension SimpleFinRepository on HomebaseRepository {
       moved++;
     }
 
-
     // A payment already on file for this card and amount, near this date.
     Future<Payment?> existingPayment(
       int cardId,
@@ -700,6 +701,70 @@ extension SimpleFinRepository on HomebaseRepository {
       moved++;
     }
     return moved;
+  }
+
+  /// Two clean-ups over what the bank feed has imported:
+  ///  * trades and cash sweeps inside brokerage and retirement accounts are
+  ///    not spending or income, so they are removed (and remembered, so a
+  ///    sync does not bring them back);
+  ///  * anything still in "Other" is given a category when the person's rules
+  ///    or the wording of the statement line say what it is.
+  ///
+  /// Idempotent. Returns how many entries were recategorized.
+  Future<int> tidyBankEntries(int profileId) async {
+    final accounts = await (_db.select(
+      _db.accounts,
+    )..where((a) => a.profileId.equals(profileId))).get();
+    final brokerage = {
+      for (final a in accounts)
+        if (a.type == AccountType.investment ||
+            a.type == AccountType.retirement)
+          a.id,
+    };
+    final feedEntries =
+        await (_db.select(_db.budgetEntries)..where(
+              (e) => e.profileId.equals(profileId) & e.externalId.isNotNull(),
+            ))
+            .get();
+
+    var recategorized = 0;
+    await _db.transaction(() async {
+      for (final e in feedEntries) {
+        final text = e.description ?? '';
+        if (e.accountId != null &&
+            brokerage.contains(e.accountId) &&
+            brokerageActivity.hasMatch(text)) {
+          await _db
+              .into(_db.simpleFinSkipped)
+              .insert(
+                SimpleFinSkippedCompanion.insert(
+                  profileId: profileId,
+                  externalId: e.externalId!,
+                ),
+                mode: InsertMode.insertOrIgnore,
+              );
+          await (_db.delete(
+            _db.budgetEntries,
+          )..where((x) => x.id.equals(e.id))).go();
+          continue;
+        }
+        if (e.category != 'Other') continue;
+        final guess =
+            await categorize(
+              profileId: profileId,
+              description: '$text ${e.payee ?? ''}',
+              amountCents: e.type == EntryType.income
+                  ? e.amountCents
+                  : -e.amountCents,
+            ) ??
+            categoryForDescription(text);
+        if (guess == null || guess == 'Other') continue;
+        await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
+            .write(BudgetEntriesCompanion(category: Value(guess)));
+        recategorized++;
+      }
+    });
+    return recategorized;
   }
 
   /// Recognises new bank transactions as a bill paid or a paycheck received

@@ -134,6 +134,20 @@ class _AppShellState extends ConsumerState<AppShell> {
       body: Row(
         children: [
           NavigationRail(
+            // The app's name, so nothing on screen leaves you wondering what
+            // this is. Type only; there is no logo yet.
+            leading: Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 20),
+              child: Text(
+                'Clearly',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
             selectedIndex: dest.index,
             onDestinationSelected: (i) =>
                 ref.read(navProvider.notifier).state = Dest.values[i],
