@@ -1913,6 +1913,63 @@ class HomebaseRepository {
   /// Card payments can be left out ([includeCardPayments] false): when the
   /// purchases themselves are already counted as spending, the payment that
   /// settles them would count the same money twice.
+  static bool _isCashAccount(AccountType t) =>
+      t == AccountType.checking || t == AccountType.cash;
+
+  /// Money that came into a spending account from somewhere that is not
+  /// income: savings or investments moved back to checking, and transfers
+  /// arriving from an account Clearly does not track. Shown as sources next
+  /// to income, so the money that funds a month is not understated.
+  Stream<Map<String, int>> watchTransferInflowsForMonth({
+    required int profileId,
+    required DateTime month,
+  }) {
+    final start = DateTime(month.year, month.month);
+    final end = DateTime(month.year, month.month + 1);
+    final logs = (_db.select(_db.transferLogs).join([
+      innerJoin(
+        _db.recurringTransfers,
+        _db.recurringTransfers.id.equalsExp(_db.transferLogs.transferId),
+      ),
+    ])
+      ..where(
+        _db.transferLogs.profileId.equals(profileId) &
+            _db.transferLogs.date.isBiggerOrEqualValue(start) &
+            _db.transferLogs.date.isSmallerThanValue(end),
+      )).watch();
+    final entries = (_db.select(_db.budgetEntries)
+          ..where((e) =>
+              e.profileId.equals(profileId) &
+              e.type.equalsValue(EntryType.income) &
+              e.category.equals(Cat.transfers) &
+              e.date.isBiggerOrEqualValue(start) &
+              e.date.isSmallerThanValue(end)))
+        .watch();
+    return combineLatest<dynamic>([
+      logs,
+      entries,
+      watchAccounts(profileId: profileId),
+    ]).map((data) {
+      final rows = data[0] as List<TypedResult>;
+      final incoming = data[1] as List<BudgetEntry>;
+      final accounts = {for (final a in data[2] as List<Account>) a.id: a};
+      final result = <String, int>{};
+      for (final row in rows) {
+        final log = row.readTable(_db.transferLogs);
+        final t = row.readTable(_db.recurringTransfers);
+        final from = accounts[t.fromAccountId];
+        final to = accounts[t.toAccountId];
+        if (from == null || to == null) continue;
+        if (_isCashAccount(from.type) || !_isCashAccount(to.type)) continue;
+        final label = 'From ${from.name}';
+        result[label] = (result[label] ?? 0) + log.amountCents;
+      }
+      final outside = incoming.fold(0, (s, e) => s + e.amountCents);
+      if (outside > 0) result['Transfers in'] = outside;
+      return result;
+    });
+  }
+
   Stream<Map<String, int>> watchRealMoneyMovementsForMonth({
     required int profileId,
     required DateTime month,
@@ -1950,19 +2007,33 @@ class HomebaseRepository {
             .watch();
     final cards = watchCards(profileId: profileId);
     final loans = watchLoans(profileId: profileId);
+    final everyAccount = watchAccounts(profileId: profileId);
 
-    return combineLatest<dynamic>([transfers, payments, cards, loans]).map((
-      data,
-    ) {
+    return combineLatest<dynamic>([
+      transfers,
+      payments,
+      cards,
+      loans,
+      everyAccount,
+    ]).map((data) {
       final transferRows = data[0] as List<TypedResult>;
       final paymentRows = data[1] as List<Payment>;
       final cardRows = data[2] as List<CreditCard>;
       final loanRows = data[3] as List<Loan>;
+      final accountRows = {for (final a in data[4] as List<Account>) a.id: a};
 
       final result = <String, int>{};
       for (final row in transferRows) {
         final log = row.readTable(_db.transferLogs);
+        final transfer = row.readTable(_db.recurringTransfers);
         final toAccount = row.readTable(_db.accounts);
+        // Only money leaving a spending account for somewhere else is an
+        // outflow. Savings coming back to checking is an inflow (see
+        // watchTransferInflowsForMonth), and a move between two cash
+        // accounts goes nowhere.
+        final from = accountRows[transfer.fromAccountId];
+        final fromIsCash = from == null || _isCashAccount(from.type);
+        if (!fromIsCash || _isCashAccount(toAccount.type)) continue;
         final label = 'Transfer to ${toAccount.name}';
         result[label] = (result[label] ?? 0) + log.amountCents;
       }

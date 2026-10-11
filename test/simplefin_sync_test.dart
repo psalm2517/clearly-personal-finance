@@ -1196,4 +1196,64 @@ void main() {
     expect(month.incomeCents, 100000);
     expect(month.expenseCents, 3000);
   });
+
+  test('the flow chart only counts money leaving spending accounts as an '
+      'outflow, and counts money arriving from elsewhere as a source',
+      () async {
+    final n = DateTime.now();
+    final day = DateTime(n.year, n.month, 1);
+    Future<int> acct(String name, AccountType t) => repo.upsertAccount(
+        AccountsCompanion.insert(
+            profileId: profileId,
+            name: name,
+            type: t,
+            balanceCents: const Value(100000)));
+    final bank = await acct('Bank', AccountType.checking);
+    final hysa = await acct('HYSA', AccountType.savings);
+    final ira = await acct('IRA', AccountType.retirement);
+    final jar = await acct('Jar', AccountType.cash);
+
+    await repo.postManualTransfer(
+        profileId: profileId,
+        fromAccountId: bank,
+        toAccountId: hysa,
+        amountCents: 51000,
+        date: day,
+        name: 'Save');
+    await repo.postManualTransfer(
+        profileId: profileId,
+        fromAccountId: ira,
+        toAccountId: bank,
+        amountCents: 6532,
+        date: day,
+        name: 'Back to checking');
+    await repo.postManualTransfer(
+        profileId: profileId,
+        fromAccountId: bank,
+        toAccountId: jar,
+        amountCents: 2000,
+        date: day,
+        name: 'Cash');
+    // A transfer in from an account Clearly does not track.
+    await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+        profileId: profileId,
+        date: day,
+        amountCents: 51024,
+        type: EntryType.income,
+        category: const Value('Transfers'),
+        description: const Value('Goldman Sachs TRANSFER'),
+        accountId: Value(bank)));
+
+    final out = await repo
+        .watchRealMoneyMovementsForMonth(
+            profileId: profileId, month: day, includeCardPayments: false)
+        .first;
+    expect(out, {'Transfer to HYSA': 51000},
+        reason: 'only checking to savings leaves; cash to cash goes nowhere');
+
+    final inflows = await repo
+        .watchTransferInflowsForMonth(profileId: profileId, month: day)
+        .first;
+    expect(inflows, {'From IRA': 6532, 'Transfers in': 51024});
+  });
 }

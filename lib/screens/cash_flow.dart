@@ -90,6 +90,10 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                   month: _month,
                   includeCardPayments: false,
                 ),
+                repo.watchTransferInflowsForMonth(
+                  profileId: profileId,
+                  month: _month,
+                ),
               ]),
               builder: (context, snap) {
                 if (!snap.hasData) return const SizedBox.shrink();
@@ -97,6 +101,7 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                 final splits =
                     snap.data![1] as Map<int, List<TransactionSplit>>;
                 final movements = snap.data![2] as Map<String, int>;
+                final transferIn = snap.data![3] as Map<String, int>;
 
                 // What you spent, by category, counted when you spent it
                 // (a card purchase included), plus transfers to your other
@@ -122,7 +127,10 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
                     SizedBox(
                       height: 320,
                       child: IncomeSankeyChart(
-                        incomeByCategory: income,
+                        // Money that arrived from savings or from outside
+                        // funds the month too, so it sits beside income
+                        // instead of making a shortfall that is not real.
+                        incomeByCategory: {...income, ...transferIn},
                         expenseByCategory: outflows,
                       ),
                     ),
