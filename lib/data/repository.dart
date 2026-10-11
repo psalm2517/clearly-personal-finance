@@ -1566,6 +1566,73 @@ class HomebaseRepository {
     return changed;
   }
 
+  /// Moves everything in category [from] to [to]: entries, split slices and
+  /// rules. A budget target follows too, unless [to] already has one, in
+  /// which case the two are added together so no budgeted amount is lost.
+  /// Returns how many entries and slices changed.
+  Future<int> renameCategory({
+    required int profileId,
+    required String from,
+    required String to,
+  }) async {
+    final target = to.trim();
+    if (target.isEmpty || target == from) return 0;
+    var changed = 0;
+    await _db.transaction(() async {
+      final entries = await (_db.select(_db.budgetEntries)
+            ..where((e) =>
+                e.profileId.equals(profileId) & e.category.equals(from)))
+          .get();
+      for (final e in entries) {
+        await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
+            .write(BudgetEntriesCompanion(category: Value(target)));
+      }
+      changed += entries.length;
+
+      final slices = await (_db.select(_db.transactionSplits)
+            ..where((x) =>
+                x.profileId.equals(profileId) & x.category.equals(from)))
+          .get();
+      for (final x in slices) {
+        await (_db.update(_db.transactionSplits)
+              ..where((r) => r.id.equals(x.id)))
+            .write(TransactionSplitsCompanion(category: Value(target)));
+      }
+      changed += slices.length;
+
+      await (_db.update(_db.categoryRules)
+            ..where((r) =>
+                r.profileId.equals(profileId) & r.category.equals(from)))
+          .write(CategoryRulesCompanion(category: Value(target)));
+
+      final src = await (_db.select(_db.budgetTargets)
+            ..where((t) =>
+                t.profileId.equals(profileId) & t.category.equals(from)))
+          .getSingleOrNull();
+      if (src != null) {
+        final dst = await (_db.select(_db.budgetTargets)
+              ..where((t) =>
+                  t.profileId.equals(profileId) & t.category.equals(target)))
+            .getSingleOrNull();
+        if (dst == null) {
+          await (_db.update(_db.budgetTargets)
+                ..where((t) => t.id.equals(src.id)))
+              .write(BudgetTargetsCompanion(category: Value(target)));
+        } else {
+          await (_db.update(_db.budgetTargets)
+                ..where((t) => t.id.equals(dst.id)))
+              .write(BudgetTargetsCompanion(
+                  monthlyTargetCents:
+                      Value(dst.monthlyTargetCents + src.monthlyTargetCents)));
+          await (_db.delete(_db.budgetTargets)
+                ..where((t) => t.id.equals(src.id)))
+              .go();
+        }
+      }
+    });
+    return changed;
+  }
+
   // ---- Splits ----
   //
   // A split breaks one entry's total across more than one category — e.g. a

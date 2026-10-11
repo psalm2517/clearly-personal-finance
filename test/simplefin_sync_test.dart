@@ -965,4 +965,43 @@ void main() {
     expect(byExt['X:2'], 'Transportation', reason: 'gas is transportation');
     expect(byExt['manual'], 'Dining');
   });
+
+  test('renaming a category moves entries, rules and its budget target',
+      () async {
+    final a = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId, name: 'A', type: AccountType.checking));
+    Future<void> add(String category) =>
+        db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+            profileId: profileId,
+            date: DateTime(2026, 6, 10),
+            amountCents: 500,
+            type: EntryType.expense,
+            category: Value(category),
+            accountId: Value(a)));
+    await add('Transporation');
+    await add('Transporation');
+    await add('Groceries');
+    await db.into(db.budgetTargets).insert(BudgetTargetsCompanion.insert(
+        profileId: profileId, category: 'Transporation', monthlyTargetCents: 10000));
+    await db.into(db.budgetTargets).insert(BudgetTargetsCompanion.insert(
+        profileId: profileId, category: 'Transportation', monthlyTargetCents: 5000));
+    await db.into(db.categoryRules).insert(CategoryRulesCompanion.insert(
+        profileId: profileId,
+        field: RuleField.description,
+        pattern: 'metro',
+        category: 'Transporation'));
+
+    final n = await repo.renameCategory(
+        profileId: profileId, from: 'Transporation', to: 'Transportation');
+    expect(n, 2);
+    final entries = await db.select(db.budgetEntries).get();
+    expect(entries.where((e) => e.category == 'Transportation'), hasLength(2));
+    expect(entries.where((e) => e.category == 'Transporation'), isEmpty);
+    expect((await db.select(db.categoryRules).get()).single.category,
+        'Transportation');
+    final targets = await db.select(db.budgetTargets).get();
+    expect(targets, hasLength(1));
+    expect(targets.single.monthlyTargetCents, 15000,
+        reason: 'two targets are added, not one lost');
+  });
 }

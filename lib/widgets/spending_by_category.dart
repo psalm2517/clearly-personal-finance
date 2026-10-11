@@ -106,6 +106,24 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
       );
   }
 
+  Future<void> _moveAll(String from, List<String> known) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _MoveAllDialog(from: from, known: known),
+    );
+    if (result == null || !mounted) return;
+    final profileId = ref.read(activeProfileProvider)!.id;
+    final changed = await ref
+        .read(repositoryProvider)
+        .renameCategory(profileId: profileId, from: from, to: result);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Moved $changed items from $from to $result.')),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -169,6 +187,15 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
                             fontSize: 15,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'Move everything in $cat to another category',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(
+                          Icons.drive_file_move_outline,
+                          size: 18,
+                        ),
+                        onPressed: () => _moveAll(cat, known),
                       ),
                       Text(
                         '${(totals[cat]! / total * 100).round()}%',
@@ -407,6 +434,89 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                   similar: _similar,
                 )),
           child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Pick the category everything in [from] should move to.
+class _MoveAllDialog extends StatefulWidget {
+  const _MoveAllDialog({required this.from, required this.known});
+  final String from;
+  final List<String> known;
+
+  @override
+  State<_MoveAllDialog> createState() => _MoveAllDialogState();
+}
+
+class _MoveAllDialogState extends State<_MoveAllDialog> {
+  final _custom = TextEditingController();
+  String? _picked;
+
+  @override
+  void dispose() {
+    _custom.dispose();
+    super.dispose();
+  }
+
+  String get _chosen =>
+      _custom.text.trim().isNotEmpty ? _custom.text.trim() : (_picked ?? '');
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Move everything in ${widget.from}'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Every transaction, split, rule and budget target '
+                'in this category moves, in every month.',
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final c in widget.known.where((c) => c != widget.from))
+                    ChoiceChip(
+                      label: Text(c),
+                      selected: _custom.text.trim().isEmpty && _picked == c,
+                      onSelected: (_) => setState(() {
+                        _custom.clear();
+                        _picked = c;
+                      }),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _custom,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Or a new category',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _chosen.isEmpty
+              ? null
+              : () => Navigator.pop(context, _chosen),
+          child: const Text('Move'),
         ),
       ],
     );
