@@ -230,6 +230,12 @@ class _BankSyncSectionState extends ConsumerState<BankSyncSection> {
                       'typed in is matched to its bank transaction rather '
                       'than duplicated. Every sync can be undone as a batch '
                       'from the import history.',
+                  'Money moving between your own accounts, and credit card '
+                      'payments, is paired up and kept out of spending. '
+                      'Bills and paychecks you track are marked paid or '
+                      'received when their bank transaction appears, and '
+                      'they stop creating their own entries on synced '
+                      'accounts so nothing is counted twice.',
                   'History builds locally. The Bridge only reaches back '
                       'about 90 days, but everything Clearly saves is kept, '
                       'so six months and year-to-date fill in as it runs. '

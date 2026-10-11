@@ -99,6 +99,13 @@ class HomebaseRepository {
       }
     }
     await _db.transaction(() async {
+      // Feed accounts cascade away with their connection.
+      await (_db.delete(_db.simpleFinConnections)
+            ..where((t) => t.profileId.equals(id)))
+          .go();
+      await (_db.delete(_db.simpleFinSkipped)
+            ..where((t) => t.profileId.equals(id)))
+          .go();
       await (_db.delete(_db.payments)..where((t) => t.profileId.equals(id)))
           .go();
       await (_db.delete(_db.netWorthSnapshots)
@@ -701,6 +708,17 @@ class HomebaseRepository {
 
     final bill = await (_db.select(_db.bills)..where((b) => b.id.equals(billId)))
         .getSingle();
+    // Paid from a bank-synced account or card: the bank reports the real
+    // charge, so the paid mark is all that is recorded here. An entry as
+    // well would count it twice.
+    if (bill.paymentSourceId != null &&
+        await isSimpleFinLinked(
+            bill.paymentSourceType == PaymentSourceType.account
+                ? FeedTarget.account
+                : FeedTarget.card,
+            bill.paymentSourceId!)) {
+      return;
+    }
     await _db.into(_db.budgetEntries).insert(BudgetEntriesCompanion.insert(
           profileId: profileId,
           date: dayInMonth(periodStart.year, periodStart.month, bill.dueDay),
@@ -871,19 +889,24 @@ class HomebaseRepository {
                     c.profileId.equals(profileId) & c.id.equals(accountId)))
               .getSingleOrNull();
           if (card == null) return;
-          final next = (card.balanceCents - amountCents).clamp(0, 1 << 62);
-          await (_db.update(_db.creditCards)
-                ..where((c) => c.id.equals(accountId)))
-              .write(CreditCardsCompanion(balanceCents: Value(next)));
+          if (!await isSimpleFinLinked(FeedTarget.card, accountId)) {
+            final next = (card.balanceCents - amountCents).clamp(0, 1 << 62);
+            await (_db.update(_db.creditCards)
+                  ..where((c) => c.id.equals(accountId)))
+                .write(CreditCardsCompanion(balanceCents: Value(next)));
+          }
         case PaymentAccountType.loan:
           final loan = await (_db.select(_db.loans)
                 ..where((l) =>
                     l.profileId.equals(profileId) & l.id.equals(accountId)))
               .getSingleOrNull();
           if (loan == null) return;
-          final next = (loan.balanceCents - amountCents).clamp(0, 1 << 62);
-          await (_db.update(_db.loans)..where((l) => l.id.equals(accountId)))
-              .write(LoansCompanion(balanceCents: Value(next)));
+          if (!await isSimpleFinLinked(FeedTarget.loan, accountId)) {
+            final next = (loan.balanceCents - amountCents).clamp(0, 1 << 62);
+            await (_db.update(_db.loans)
+                  ..where((l) => l.id.equals(accountId)))
+                .write(LoansCompanion(balanceCents: Value(next)));
+          }
       }
 
       if (fromAccountId != null) {
@@ -910,21 +933,25 @@ class HomebaseRepository {
                 ..where((c) => c.id.equals(payment.accountId)))
               .getSingleOrNull();
           if (card == null) return;
-          await (_db.update(_db.creditCards)
-                ..where((c) => c.id.equals(payment.accountId)))
-              .write(CreditCardsCompanion(
-                  balanceCents:
-                      Value(card.balanceCents + payment.amountCents)));
+          if (!await isSimpleFinLinked(FeedTarget.card, payment.accountId)) {
+            await (_db.update(_db.creditCards)
+                  ..where((c) => c.id.equals(payment.accountId)))
+                .write(CreditCardsCompanion(
+                    balanceCents:
+                        Value(card.balanceCents + payment.amountCents)));
+          }
         case PaymentAccountType.loan:
           final loan = await (_db.select(_db.loans)
                 ..where((l) => l.id.equals(payment.accountId)))
               .getSingleOrNull();
           if (loan == null) return;
-          await (_db.update(_db.loans)
-                ..where((l) => l.id.equals(payment.accountId)))
-              .write(LoansCompanion(
-                  balanceCents:
-                      Value(loan.balanceCents + payment.amountCents)));
+          if (!await isSimpleFinLinked(FeedTarget.loan, payment.accountId)) {
+            await (_db.update(_db.loans)
+                  ..where((l) => l.id.equals(payment.accountId)))
+                .write(LoansCompanion(
+                    balanceCents:
+                        Value(loan.balanceCents + payment.amountCents)));
+          }
       }
 
       if (payment.fromAccountId != null) {
@@ -1940,6 +1967,12 @@ class HomebaseRepository {
   }
 
   Future<void> _syncPaycheckEntry(Paycheck paycheck) async {
+    // Deposited into a bank-synced account: the deposit arrives from the
+    // bank as its own entry, so no income entry or balance move is made.
+    if (paycheck.accountId != null &&
+        await isSimpleFinLinked(FeedTarget.account, paycheck.accountId!)) {
+      return;
+    }
     final existing = await (_db.select(_db.budgetEntries)
           ..where((e) => e.sourcePaycheckId.equals(paycheck.id)))
         .getSingleOrNull();
@@ -2607,6 +2640,14 @@ class HomebaseRepository {
                   date: date,
                 ),
               );
+          // On a bank-synced account or card the bank reports the real
+          // charge; the occurrence is logged as seen, but not entered twice.
+          final synced = (item.accountId != null &&
+                  await isSimpleFinLinked(
+                      FeedTarget.account, item.accountId!)) ||
+              (item.cardId != null &&
+                  await isSimpleFinLinked(FeedTarget.card, item.cardId!));
+          if (synced) return;
           await _db.into(_db.budgetEntries).insert(
                 BudgetEntriesCompanion.insert(
                   profileId: profileId,
@@ -2645,6 +2686,8 @@ class HomebaseRepository {
   /// snapshot has to be kept up to date in this one place rather than at
   /// each call site.
   Future<void> _adjustAccountBalance(int accountId, int deltaCents) async {
+    // A bank-synced balance is the bank's number; nothing local moves it.
+    if (await isSimpleFinLinked(FeedTarget.account, accountId)) return;
     final account = await (_db.select(_db.accounts)
           ..where((a) => a.id.equals(accountId)))
         .getSingleOrNull();
@@ -2657,6 +2700,7 @@ class HomebaseRepository {
   }
 
   Future<void> _adjustCardBalance(int cardId, int deltaCents) async {
+    if (await isSimpleFinLinked(FeedTarget.card, cardId)) return;
     final card = await (_db.select(_db.creditCards)
           ..where((c) => c.id.equals(cardId)))
         .getSingleOrNull();

@@ -264,6 +264,20 @@ class SimpleFinConnections extends Table {
   TextColumn get lastSyncMessage => text().nullable()();
 }
 
+/// Feed transactions that were deliberately not kept as entries, because they
+/// were paired into a transfer or a card payment. Remembered so the next
+/// sync, which re-reads an overlapping window, does not import them again.
+class SimpleFinSkipped extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get profileId => integer().references(Profiles, #id)();
+  TextColumn get externalId => text()();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {profileId, externalId},
+      ];
+}
+
 /// What a feed account has been matched to in Clearly.
 enum FeedTarget { unmapped, account, card, loan, ignored }
 
@@ -595,13 +609,14 @@ class RecurringTransactionLogs extends Table {
   RecurringTransactionLogs,
   SimpleFinConnections,
   SimpleFinFeedAccounts,
+  SimpleFinSkipped,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 24;
+  int get schemaVersion => 25;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -805,6 +820,9 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(simpleFinConnections);
             await m.createTable(simpleFinFeedAccounts);
             await m.addColumn(budgetEntries, budgetEntries.externalId);
+          }
+          if (from < 25) {
+            await m.createTable(simpleFinSkipped);
           }
         },
         beforeOpen: (details) async {

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:clearly/data/database.dart';
 import 'package:clearly/data/repository.dart';
 import 'package:clearly/data/simplefin.dart';
+import 'package:clearly/data/transaction_draft.dart';
 
 /// A scripted Bridge: claim returns an access url, /accounts returns
 /// whatever [accounts] currently holds.
@@ -374,5 +375,245 @@ void main() {
     final a = (await db.select(db.accounts).get()).single;
     expect(a.name, 'Renamed', reason: 'other fields still edit');
     expect(a.balanceCents, 150000, reason: 'the bank owns the balance');
+  });
+
+  group('with Clearly Sync on', () {
+    Future<void> linkAll() async {
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      for (final a in await feed()) {
+        await repo.createFromSimpleFinAccount(
+          profileId: profileId,
+          feedAccountId: a.id,
+          kind: a.name == 'Visa' ? FeedTarget.card : FeedTarget.account,
+        );
+      }
+    }
+
+    test('a card payment is one movement, not an expense plus income',
+        () async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Everyday',
+          'balance': '900.00',
+          'transactions': [
+            txn('pay', '-100.00', 'VISA PAYMENT', posted: DateTime(2026, 6, 12)),
+          ],
+        },
+        {
+          'id': 'CC',
+          'name': 'Visa',
+          'balance': '-200.00',
+          'transactions': [
+            txn('c1', '-40.00', 'GROCERY', posted: DateTime(2026, 6, 8)),
+            txn('credit', '100.00', 'PAYMENT THANK YOU',
+                posted: DateTime(2026, 6, 13)),
+          ],
+        },
+      ];
+      await linkAll();
+      final r = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(r.pairedMovements, 1);
+
+      final entries = await db.select(db.budgetEntries).get();
+      expect(entries.map((e) => e.description), ['GROCERY'],
+          reason: 'only the real purchase is spending');
+      final payment = (await db.select(db.payments).get()).single;
+      expect(payment.amountCents, 10000);
+      expect(payment.accountType, PaymentAccountType.card);
+      expect(payment.fromAccountId, isNotNull);
+
+      // Balances still come straight from the feed.
+      expect((await db.select(db.creditCards).get()).single.balanceCents,
+          20000);
+
+      // And they are not imported again on the next sync.
+      final again = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(again.newTransactions, 0);
+      expect(await db.select(db.budgetEntries).get(), hasLength(1));
+      expect(await db.select(db.payments).get(), hasLength(1));
+    });
+
+    test('a transfer between two linked accounts becomes a transfer record',
+        () async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Everyday',
+          'balance': '400.00',
+          'transactions': [
+            txn('out', '-250.00', 'TO SAVINGS', posted: DateTime(2026, 6, 11)),
+          ],
+        },
+        {
+          'id': 'SAV',
+          'name': 'Savings',
+          'balance': '1250.00',
+          'transactions': [
+            txn('in', '250.00', 'FROM CHECKING', posted: DateTime(2026, 6, 11)),
+          ],
+        },
+      ];
+      await linkAll();
+      final r = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(r.pairedMovements, 1);
+      expect(await db.select(db.budgetEntries).get(), isEmpty);
+      final log = (await db.select(db.transferLogs).get()).single;
+      expect(log.amountCents, 25000);
+      // Both balances are still the bank's.
+      final balances = (await db.select(db.accounts).get())
+          .map((a) => a.balanceCents)
+          .toSet();
+      expect(balances, {40000, 125000});
+    });
+
+    test('unlike amounts are never paired', () async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Everyday',
+          'balance': '900.00',
+          'transactions': [txn('o', '-100.00', 'STORE')],
+        },
+        {
+          'id': 'SAV',
+          'name': 'Savings',
+          'balance': '10.00',
+          'transactions': [txn('i', '99.00', 'INTEREST')],
+        },
+      ];
+      await linkAll();
+      final r = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(r.pairedMovements, 0);
+      expect(await db.select(db.budgetEntries).get(), hasLength(2));
+    });
+
+    test('a bank transaction marks the bill paid and the paycheck received',
+        () async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Everyday',
+          'balance': '1000.00',
+          'transactions': [
+            txn('b', '-94.00', 'METROPCS WIRELESS', posted: DateTime(2026, 6, 10)),
+            txn('p', '750.00', 'ACME PAYROLL', posted: DateTime(2026, 6, 12)),
+          ],
+        },
+      ];
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      final accountId = await repo.createFromSimpleFinAccount(
+          profileId: profileId,
+          feedAccountId: (await feed()).single.id,
+          kind: FeedTarget.account);
+      final billId = await repo.upsertBill(BillsCompanion.insert(
+        profileId: profileId,
+        name: 'MetroPCS',
+        amountCents: 9400,
+        dueDay: 10,
+        category: const Value('Utilities'),
+        paymentSourceType: const Value(PaymentSourceType.account),
+        paymentSourceId: Value(accountId),
+      ));
+      final paycheckId = await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profileId,
+        name: 'Work',
+        date: DateTime(2026, 6, 12),
+        amountCents: 75000,
+        accountId: Value(accountId),
+      ));
+
+      final r = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(r.recognizedRecurring, 2);
+
+      final payments = await db.select(db.billPayments).get();
+      expect(payments.single.billId, billId);
+      expect(payments.single.periodStart, DateTime(2026, 6));
+      final paycheck = await (db.select(db.paychecks)
+            ..where((p) => p.id.equals(paycheckId)))
+          .getSingle();
+      expect(paycheck.received, isTrue);
+
+      // The bank transaction is the entry; nothing was added beside it.
+      final entries = await db.select(db.budgetEntries).get();
+      expect(entries, hasLength(2));
+      expect(entries.firstWhere((e) => e.description!.contains('METRO')).category,
+          'Utilities');
+      expect(entries.firstWhere((e) => e.description!.contains('PAYROLL')).category,
+          'Paycheck');
+    });
+
+    test('recurring items do not add their own entries or move balances on '
+        'a synced account', () async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Everyday',
+          'balance': '1000.00',
+          'transactions': <Object>[],
+        },
+      ];
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      final accountId = await repo.createFromSimpleFinAccount(
+          profileId: profileId,
+          feedAccountId: (await feed()).single.id,
+          kind: FeedTarget.account);
+
+      await repo.upsertBill(BillsCompanion.insert(
+        profileId: profileId,
+        name: 'Rent',
+        amountCents: 50000,
+        dueDay: 1,
+        autopay: const Value(true),
+        paymentSourceType: const Value(PaymentSourceType.account),
+        paymentSourceId: Value(accountId),
+      ));
+      await repo.materializeAutopayPayments(
+          profileId: profileId, month: DateTime.now());
+      await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profileId,
+        name: 'Work',
+        date: DateTime(2026, 1, 2),
+        amountCents: 100000,
+        received: const Value(true),
+        accountId: Value(accountId),
+      ));
+      await repo.addTransaction(
+        profileId: profileId,
+        draft: TransactionDraft(
+          kind: DraftKind.expense,
+          amountCents: 700,
+          date: DateTime.now(),
+          name: 'Coffee',
+          accountId: accountId,
+        ),
+      );
+
+      expect((await db.select(db.accounts).get()).single.balanceCents, 100000,
+          reason: 'only the bank moves a synced balance');
+      final entries = await db.select(db.budgetEntries).get();
+      expect(entries.map((e) => e.description),
+          isNot(containsAll(['Rent', 'Work'])),
+          reason: 'bill and paycheck mirrors are not created');
+    });
+
+    test('deleting a profile with a connection does not fail', () async {
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      final other = await repo.createProfile(ProfilesCompanion.insert(
+          name: 'Other', isAdmin: const Value(false)));
+      await repo.connectSimpleFin(
+          profileId: other, setupToken: token(), client: client, now: now);
+      await repo.deleteProfile(id: other);
+      expect(await db.select(db.simpleFinConnections).get(), hasLength(1));
+    });
   });
 }

@@ -6866,8 +6866,8 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
   /// recurring transaction came due — see [RecurringTransactionLogs].
   final int? sourceRecurringTransactionLogId;
 
-  /// Set for entries that came from a bank feed: "<feed account id>:<its
-  /// transaction id>". A sync skips anything it has already imported, so
+  /// Set for entries that came from a bank feed, as the feed account's remote
+  /// id, a colon, then the transaction's id. A sync skips anything it has already imported, so
   /// running it twice (or over an overlapping window) never duplicates.
   final String? externalId;
   const BudgetEntry({
@@ -13332,6 +13332,270 @@ class SimpleFinFeedAccountsCompanion
   }
 }
 
+class $SimpleFinSkippedTable extends SimpleFinSkipped
+    with TableInfo<$SimpleFinSkippedTable, SimpleFinSkippedData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SimpleFinSkippedTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<int> profileId = GeneratedColumn<int>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES profiles (id)',
+    ),
+  );
+  static const VerificationMeta _externalIdMeta = const VerificationMeta(
+    'externalId',
+  );
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+    'external_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, profileId, externalId];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'simple_fin_skipped';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SimpleFinSkippedData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_profileIdMeta);
+    }
+    if (data.containsKey('external_id')) {
+      context.handle(
+        _externalIdMeta,
+        externalId.isAcceptableOrUnknown(data['external_id']!, _externalIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_externalIdMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {profileId, externalId},
+  ];
+  @override
+  SimpleFinSkippedData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SimpleFinSkippedData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}profile_id'],
+      )!,
+      externalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}external_id'],
+      )!,
+    );
+  }
+
+  @override
+  $SimpleFinSkippedTable createAlias(String alias) {
+    return $SimpleFinSkippedTable(attachedDatabase, alias);
+  }
+}
+
+class SimpleFinSkippedData extends DataClass
+    implements Insertable<SimpleFinSkippedData> {
+  final int id;
+  final int profileId;
+  final String externalId;
+  const SimpleFinSkippedData({
+    required this.id,
+    required this.profileId,
+    required this.externalId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['profile_id'] = Variable<int>(profileId);
+    map['external_id'] = Variable<String>(externalId);
+    return map;
+  }
+
+  SimpleFinSkippedCompanion toCompanion(bool nullToAbsent) {
+    return SimpleFinSkippedCompanion(
+      id: Value(id),
+      profileId: Value(profileId),
+      externalId: Value(externalId),
+    );
+  }
+
+  factory SimpleFinSkippedData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SimpleFinSkippedData(
+      id: serializer.fromJson<int>(json['id']),
+      profileId: serializer.fromJson<int>(json['profileId']),
+      externalId: serializer.fromJson<String>(json['externalId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'profileId': serializer.toJson<int>(profileId),
+      'externalId': serializer.toJson<String>(externalId),
+    };
+  }
+
+  SimpleFinSkippedData copyWith({
+    int? id,
+    int? profileId,
+    String? externalId,
+  }) => SimpleFinSkippedData(
+    id: id ?? this.id,
+    profileId: profileId ?? this.profileId,
+    externalId: externalId ?? this.externalId,
+  );
+  SimpleFinSkippedData copyWithCompanion(SimpleFinSkippedCompanion data) {
+    return SimpleFinSkippedData(
+      id: data.id.present ? data.id.value : this.id,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
+      externalId: data.externalId.present
+          ? data.externalId.value
+          : this.externalId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinSkippedData(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('externalId: $externalId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, profileId, externalId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SimpleFinSkippedData &&
+          other.id == this.id &&
+          other.profileId == this.profileId &&
+          other.externalId == this.externalId);
+}
+
+class SimpleFinSkippedCompanion extends UpdateCompanion<SimpleFinSkippedData> {
+  final Value<int> id;
+  final Value<int> profileId;
+  final Value<String> externalId;
+  const SimpleFinSkippedCompanion({
+    this.id = const Value.absent(),
+    this.profileId = const Value.absent(),
+    this.externalId = const Value.absent(),
+  });
+  SimpleFinSkippedCompanion.insert({
+    this.id = const Value.absent(),
+    required int profileId,
+    required String externalId,
+  }) : profileId = Value(profileId),
+       externalId = Value(externalId);
+  static Insertable<SimpleFinSkippedData> custom({
+    Expression<int>? id,
+    Expression<int>? profileId,
+    Expression<String>? externalId,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (profileId != null) 'profile_id': profileId,
+      if (externalId != null) 'external_id': externalId,
+    });
+  }
+
+  SimpleFinSkippedCompanion copyWith({
+    Value<int>? id,
+    Value<int>? profileId,
+    Value<String>? externalId,
+  }) {
+    return SimpleFinSkippedCompanion(
+      id: id ?? this.id,
+      profileId: profileId ?? this.profileId,
+      externalId: externalId ?? this.externalId,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<int>(profileId.value);
+    }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinSkippedCompanion(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('externalId: $externalId')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -13375,6 +13639,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $SimpleFinConnectionsTable(this);
   late final $SimpleFinFeedAccountsTable simpleFinFeedAccounts =
       $SimpleFinFeedAccountsTable(this);
+  late final $SimpleFinSkippedTable simpleFinSkipped = $SimpleFinSkippedTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -13407,6 +13674,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     transactionSplits,
     simpleFinConnections,
     simpleFinFeedAccounts,
+    simpleFinSkipped,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -14026,6 +14294,26 @@ final class $$ProfilesTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _simpleFinConnectionsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$SimpleFinSkippedTable, List<SimpleFinSkippedData>>
+  _simpleFinSkippedRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.simpleFinSkipped,
+    aliasName: 'profiles__id__simple_fin_skipped__profile_id',
+  );
+
+  $$SimpleFinSkippedTableProcessedTableManager get simpleFinSkippedRefs {
+    final manager = $$SimpleFinSkippedTableTableManager(
+      $_db,
+      $_db.simpleFinSkipped,
+    ).filter((f) => f.profileId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _simpleFinSkippedRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -14657,6 +14945,31 @@ class $$ProfilesTableFilterComposer
           }) => $$SimpleFinConnectionsTableFilterComposer(
             $db: $db,
             $table: $db.simpleFinConnections,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> simpleFinSkippedRefs(
+    Expression<bool> Function($$SimpleFinSkippedTableFilterComposer f) f,
+  ) {
+    final $$SimpleFinSkippedTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.simpleFinSkipped,
+      getReferencedColumn: (t) => t.profileId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SimpleFinSkippedTableFilterComposer(
+            $db: $db,
+            $table: $db.simpleFinSkipped,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -15329,6 +15642,31 @@ class $$ProfilesTableAnnotationComposer
         );
     return f(composer);
   }
+
+  Expression<T> simpleFinSkippedRefs<T extends Object>(
+    Expression<T> Function($$SimpleFinSkippedTableAnnotationComposer a) f,
+  ) {
+    final $$SimpleFinSkippedTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.simpleFinSkipped,
+      getReferencedColumn: (t) => t.profileId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SimpleFinSkippedTableAnnotationComposer(
+            $db: $db,
+            $table: $db.simpleFinSkipped,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ProfilesTableTableManager
@@ -15369,6 +15707,7 @@ class $$ProfilesTableTableManager
             bool transferLogsRefs,
             bool transactionSplitsRefs,
             bool simpleFinConnectionsRefs,
+            bool simpleFinSkippedRefs,
           })
         > {
   $$ProfilesTableTableManager(_$AppDatabase db, $ProfilesTable table)
@@ -15440,6 +15779,7 @@ class $$ProfilesTableTableManager
                 transferLogsRefs = false,
                 transactionSplitsRefs = false,
                 simpleFinConnectionsRefs = false,
+                simpleFinSkippedRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -15469,6 +15809,7 @@ class $$ProfilesTableTableManager
                     if (transferLogsRefs) db.transferLogs,
                     if (transactionSplitsRefs) db.transactionSplits,
                     if (simpleFinConnectionsRefs) db.simpleFinConnections,
+                    if (simpleFinSkippedRefs) db.simpleFinSkipped,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -15969,6 +16310,27 @@ class $$ProfilesTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (simpleFinSkippedRefs)
+                        await $_getPrefetchedData<
+                          Profile,
+                          $ProfilesTable,
+                          SimpleFinSkippedData
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProfilesTableReferences
+                              ._simpleFinSkippedRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProfilesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).simpleFinSkippedRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.profileId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -16014,6 +16376,7 @@ typedef $$ProfilesTableProcessedTableManager =
         bool transferLogsRefs,
         bool transactionSplitsRefs,
         bool simpleFinConnectionsRefs,
+        bool simpleFinSkippedRefs,
       })
     >;
 typedef $$AccountsTableCreateCompanionBuilder = AccountsCompanion Function({
@@ -30089,6 +30452,290 @@ typedef $$SimpleFinFeedAccountsTableProcessedTableManager =
       SimpleFinFeedAccount,
       PrefetchHooks Function({bool connectionId})
     >;
+typedef $$SimpleFinSkippedTableCreateCompanionBuilder =
+    SimpleFinSkippedCompanion Function({
+      Value<int> id,
+      required int profileId,
+      required String externalId,
+    });
+typedef $$SimpleFinSkippedTableUpdateCompanionBuilder =
+    SimpleFinSkippedCompanion Function({
+      Value<int> id,
+      Value<int> profileId,
+      Value<String> externalId,
+    });
+
+final class $$SimpleFinSkippedTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $SimpleFinSkippedTable,
+          SimpleFinSkippedData
+        > {
+  $$SimpleFinSkippedTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $ProfilesTable _profileIdTable(_$AppDatabase db) =>
+      db.profiles.createAlias('simple_fin_skipped__profile_id__profiles__id');
+
+  $$ProfilesTableProcessedTableManager get profileId {
+    final $_column = $_itemColumn<int>('profile_id')!;
+
+    final manager = $$ProfilesTableTableManager(
+      $_db,
+      $_db.profiles,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_profileIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$SimpleFinSkippedTableFilterComposer
+    extends Composer<_$AppDatabase, $SimpleFinSkippedTable> {
+  $$SimpleFinSkippedTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+    column: $table.externalId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ProfilesTableFilterComposer get profileId {
+    final $$ProfilesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableFilterComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SimpleFinSkippedTableOrderingComposer
+    extends Composer<_$AppDatabase, $SimpleFinSkippedTable> {
+  $$SimpleFinSkippedTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get externalId => $composableBuilder(
+    column: $table.externalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ProfilesTableOrderingComposer get profileId {
+    final $$ProfilesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableOrderingComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SimpleFinSkippedTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SimpleFinSkippedTable> {
+  $$SimpleFinSkippedTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+    column: $table.externalId,
+    builder: (column) => column,
+  );
+
+  $$ProfilesTableAnnotationComposer get profileId {
+    final $$ProfilesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SimpleFinSkippedTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SimpleFinSkippedTable,
+          SimpleFinSkippedData,
+          $$SimpleFinSkippedTableFilterComposer,
+          $$SimpleFinSkippedTableOrderingComposer,
+          $$SimpleFinSkippedTableAnnotationComposer,
+          $$SimpleFinSkippedTableCreateCompanionBuilder,
+          $$SimpleFinSkippedTableUpdateCompanionBuilder,
+          (SimpleFinSkippedData, $$SimpleFinSkippedTableReferences),
+          SimpleFinSkippedData,
+          PrefetchHooks Function({bool profileId})
+        > {
+  $$SimpleFinSkippedTableTableManager(
+    _$AppDatabase db,
+    $SimpleFinSkippedTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SimpleFinSkippedTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SimpleFinSkippedTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SimpleFinSkippedTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> profileId = const Value.absent(),
+                Value<String> externalId = const Value.absent(),
+              }) => SimpleFinSkippedCompanion(
+                id: id,
+                profileId: profileId,
+                externalId: externalId,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int profileId,
+                required String externalId,
+              }) => SimpleFinSkippedCompanion.insert(
+                id: id,
+                profileId: profileId,
+                externalId: externalId,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$SimpleFinSkippedTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({profileId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (profileId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.profileId,
+                        referencedTable: $$SimpleFinSkippedTableReferences
+                            ._profileIdTable(db),
+                        referencedColumn: $$SimpleFinSkippedTableReferences
+                            ._profileIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$SimpleFinSkippedTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SimpleFinSkippedTable,
+      SimpleFinSkippedData,
+      $$SimpleFinSkippedTableFilterComposer,
+      $$SimpleFinSkippedTableOrderingComposer,
+      $$SimpleFinSkippedTableAnnotationComposer,
+      $$SimpleFinSkippedTableCreateCompanionBuilder,
+      $$SimpleFinSkippedTableUpdateCompanionBuilder,
+      (SimpleFinSkippedData, $$SimpleFinSkippedTableReferences),
+      SimpleFinSkippedData,
+      PrefetchHooks Function({bool profileId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -30152,4 +30799,6 @@ class $AppDatabaseManager {
       $$SimpleFinConnectionsTableTableManager(_db, _db.simpleFinConnections);
   $$SimpleFinFeedAccountsTableTableManager get simpleFinFeedAccounts =>
       $$SimpleFinFeedAccountsTableTableManager(_db, _db.simpleFinFeedAccounts);
+  $$SimpleFinSkippedTableTableManager get simpleFinSkipped =>
+      $$SimpleFinSkippedTableTableManager(_db, _db.simpleFinSkipped);
 }

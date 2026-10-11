@@ -922,6 +922,7 @@ void main() {
     raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
     raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
     raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_skipped;');
     raw.execute('DROP TABLE IF EXISTS simple_fin_feed_accounts;');
     raw.execute('DROP TABLE IF EXISTS simple_fin_connections;');
     raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
@@ -978,6 +979,7 @@ void main() {
     raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
     raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
     raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_skipped;');
     raw.execute('DROP TABLE IF EXISTS simple_fin_feed_accounts;');
     raw.execute('DROP TABLE IF EXISTS simple_fin_connections;');
     raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
@@ -1014,6 +1016,7 @@ void main() {
 
     // Put it back the way a v23 database had it.
     final raw = sqlite3.open(f.path);
+    raw.execute('DROP TABLE simple_fin_skipped;');
     raw.execute('DROP TABLE simple_fin_feed_accounts;');
     raw.execute('DROP TABLE simple_fin_connections;');
     raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
@@ -1028,5 +1031,27 @@ void main() {
     expect(entry.externalId, isNull);
     expect(await db.select(db.simpleFinConnections).get(), isEmpty);
     expect(await db.select(db.simpleFinFeedAccounts).get(), isEmpty);
+  });
+
+  test('a v24 database gains the paired-transactions memory', () async {
+    final dir = Directory.systemTemp.createTempSync('homebase_v24');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final f = File('${dir.path}/homebase.sqlite');
+
+    var db = AppDatabase.forTesting(NativeDatabase(f));
+    final repo = HomebaseRepository(db);
+    await repo.createProfile(
+        ProfilesCompanion.insert(name: 'Owner', isAdmin: const Value(true)));
+    await db.close();
+
+    final raw = sqlite3.open(f.path);
+    raw.execute('DROP TABLE simple_fin_skipped;');
+    raw.execute('PRAGMA user_version = 24;');
+    raw.close();
+
+    db = AppDatabase.forTesting(NativeDatabase(f));
+    addTearDown(db.close);
+    expect(await db.select(db.simpleFinSkipped).get(), isEmpty);
+    expect(await db.select(db.profiles).get(), hasLength(1));
   });
 }
