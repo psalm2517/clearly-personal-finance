@@ -2281,35 +2281,70 @@ class HomebaseRepository {
   }) {
     final start = DateTime(month.year, month.month);
     final end = DateTime(month.year, month.month + 1);
-    final paychecks =
-        (_db.select(_db.paychecks)..where(
-              (p) =>
-                  p.profileId.equals(profileId) &
-                  p.dismissed.equals(false) &
-                  p.date.isBiggerOrEqualValue(start) &
-                  p.date.isSmallerThanValue(end),
-            ))
-            .watch();
-    final manualIncome =
-        (_db.select(_db.budgetEntries)..where(
-              (e) =>
-                  e.profileId.equals(profileId) &
-                  e.type.equalsValue(EntryType.income) &
-                  e.sourcePaycheckId.isNull() &
-                  e.date.isBiggerOrEqualValue(start) &
-                  e.date.isSmallerThanValue(end),
-            ))
-            .watch();
-    return combineLatest<dynamic>([paychecks, manualIncome]).map((data) {
+    final paychecks = (_db.select(_db.paychecks)
+          ..where((p) =>
+              p.profileId.equals(profileId) &
+              p.dismissed.equals(false) &
+              p.date.isBiggerOrEqualValue(start) &
+              p.date.isSmallerThanValue(end)))
+        .watch();
+    final incomeEntries = (_db.select(_db.budgetEntries)
+          ..where((e) =>
+              e.profileId.equals(profileId) &
+              e.type.equalsValue(EntryType.income) &
+              e.date.isBiggerOrEqualValue(start) &
+              e.date.isSmallerThanValue(end)))
+        .watch();
+    return combineLatest<dynamic>([paychecks, incomeEntries]).map((data) {
       final paycheckRows = data[0] as List<Paycheck>;
-      final entryRows = data[1] as List<BudgetEntry>;
-      final fromPaychecks = paycheckRows.fold(
-        0,
-        (s, p) => s + p.amountCents + p.bonusCents,
-      );
-      final fromManualEntries = entryRows.fold(0, (s, e) => s + e.amountCents);
-      return fromPaychecks + fromManualEntries;
+      // Money moving between your own accounts is not income.
+      final entries = [
+        for (final e in data[1] as List<BudgetEntry>)
+          if (e.category != Cat.transfers) e,
+      ];
+      return expectedIncomeCents(paycheckRows, entries);
     });
+  }
+
+  /// What the month's income adds up to: everything already recorded, plus
+  /// the paychecks still to come.
+  ///
+  /// A paycheck is counted on its own only while nothing recorded stands for
+  /// it. Once it has an income entry of its own, or the bank has delivered
+  /// the deposit (an entry of about that amount within a few days), the
+  /// entry is the income and the paycheck is not added again.
+  static int expectedIncomeCents(
+    List<Paycheck> paychecks,
+    List<BudgetEntry> incomeEntries,
+  ) {
+    var total = incomeEntries.fold(0, (s, e) => s + e.amountCents);
+    final claimed = <int>{};
+    DateTime day(DateTime d) => DateTime.utc(d.year, d.month, d.day);
+    for (final p in paychecks) {
+      final amount = p.amountCents + p.bonusCents;
+      if (incomeEntries.any((e) => e.sourcePaycheckId == p.id)) continue;
+      if (!p.received) {
+        total += amount;
+        continue;
+      }
+      // Received, but with no entry of its own: the bank's deposit stands
+      // for it if one is there.
+      final tolerance = (amount * 0.03).round().clamp(500, 1 << 40);
+      BudgetEntry? match;
+      for (final e in incomeEntries) {
+        if (claimed.contains(e.id) || e.sourcePaycheckId != null) continue;
+        if ((e.amountCents - amount).abs() > tolerance) continue;
+        if (day(e.date).difference(day(p.date)).inDays.abs() > 5) continue;
+        match = e;
+        break;
+      }
+      if (match != null) {
+        claimed.add(match.id);
+      } else {
+        total += amount;
+      }
+    }
+    return total;
   }
 
   /// Bills that actually charge in [month] — real cash out, matches what a

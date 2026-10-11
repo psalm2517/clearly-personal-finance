@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/categories.dart';
 import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
@@ -90,11 +91,15 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       int setAsideCents,
       Map<int, List<TransactionSplit>> splitsByEntry,
       ColorScheme scheme) {
+    // Moving money between your own accounts is neither income nor
+    // spending.
     final moneyIn = entries
-        .where((e) => e.type == EntryType.income)
+        .where((e) =>
+            e.type == EntryType.income && e.category != Cat.transfers)
         .fold(0, (s, e) => s + e.amountCents);
     final moneyOut = entries
-        .where((e) => e.type == EntryType.expense)
+        .where((e) =>
+            e.type == EntryType.expense && e.category != Cat.transfers)
         .fold(0, (s, e) => s + e.amountCents);
 
     // Each category is planned once: at its target, or at its bills where

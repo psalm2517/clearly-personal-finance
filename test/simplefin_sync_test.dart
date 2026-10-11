@@ -1256,4 +1256,71 @@ void main() {
         .first;
     expect(inflows, {'From IRA': 6532, 'Transfers in': 51024});
   });
+
+  group('income this month', () {
+    Paycheck paycheck(int id, DateTime date, int cents, {bool received = false}) =>
+        Paycheck(
+          id: id,
+          profileId: 1,
+          name: 'Work',
+          date: date,
+          amountCents: cents,
+          bonusCents: 0,
+          received: received,
+          receivedIsManual: false,
+          dismissed: false,
+        );
+    BudgetEntry income(int id, DateTime date, int cents,
+            {int? paycheckId, String category = 'Other'}) =>
+        BudgetEntry(
+          id: id,
+          profileId: 1,
+          date: date,
+          category: category,
+          amountCents: cents,
+          type: EntryType.income,
+        );
+
+    test('a paycheck the bank already delivered is not counted twice', () {
+      final total = HomebaseRepository.expectedIncomeCents(
+        [
+          paycheck(1, DateTime(2026, 10, 8), 75000, received: true),
+          paycheck(2, DateTime(2026, 10, 22), 75000),
+        ],
+        [income(10, DateTime(2026, 10, 8), 76333)],
+      );
+      // The $763.33 deposit stands for the first; the second is still to come.
+      expect(total, 76333 + 75000);
+    });
+
+    test('an unreceived paycheck counts, and so does a received one with no '
+        'deposit yet', () {
+      final total = HomebaseRepository.expectedIncomeCents(
+        [
+          paycheck(1, DateTime(2026, 10, 8), 75000, received: true),
+          paycheck(2, DateTime(2026, 10, 22), 75000),
+        ],
+        [],
+      );
+      expect(total, 150000);
+    });
+
+    test('a paycheck with its own entry is not added again', () {
+      final total = HomebaseRepository.expectedIncomeCents(
+        [paycheck(1, DateTime(2026, 10, 8), 75000, received: true)],
+        [
+          BudgetEntry(
+            id: 5,
+            profileId: 1,
+            date: DateTime(2026, 10, 8),
+            category: 'Paycheck',
+            amountCents: 75000,
+            type: EntryType.income,
+            sourcePaycheckId: 1,
+          ),
+        ],
+      );
+      expect(total, 75000);
+    });
+  });
 }
