@@ -67,10 +67,17 @@ class _BankSyncSectionState extends ConsumerState<BankSyncSection> {
   }
 
   Future<void> _sync({Duration? lookback}) => _run(() async {
+    // Entries imported before payees were kept get filled in by reading the
+    // last 90 days once; after that the normal short window is enough.
+    final wide =
+        lookback ??
+        (await _repo.hasEntriesMissingPayee(_profileId)
+            ? const Duration(days: 90)
+            : null);
     final r = await _repo.syncSimpleFin(
       profileId: _profileId,
       client: ref.read(simpleFinClientProvider),
-      lookback: lookback,
+      lookback: wide,
     );
     if (r.failure != null) {
       _toast(r.failure!);

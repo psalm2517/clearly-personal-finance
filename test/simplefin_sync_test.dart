@@ -890,4 +890,50 @@ void main() {
     await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
     expect((await db.select(db.budgetEntries).get()).length, entries.length);
   });
+
+  test('entries imported before payees were kept get one, and a category',
+      () async {
+    bridge.accounts = [
+      {
+        'id': 'CHK',
+        'name': 'Checking',
+        'balance': '100.00',
+        'transactions': [
+          {
+            'id': 'u1',
+            'posted': epoch(DateTime(2026, 6, 10)),
+            'amount': '-18.00',
+            'description': 'UBER   *EATS',
+            'payee': 'Uber Eats',
+          },
+        ],
+      },
+    ];
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    final accountId = await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: (await feed()).single.id,
+        kind: FeedTarget.account);
+    // As an older build left it: imported, no payee, in Other.
+    await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+        profileId: profileId,
+        date: DateTime(2026, 6, 10),
+        amountCents: 1800,
+        type: EntryType.expense,
+        description: const Value('UBER   *EATS'),
+        accountId: Value(accountId),
+        externalId: const Value('CHK:u1')));
+    expect(await repo.hasEntriesMissingPayee(profileId, now: now), isTrue);
+
+    await repo.syncSimpleFin(
+        profileId: profileId,
+        client: client,
+        now: now,
+        lookback: const Duration(days: 90));
+    final e = (await db.select(db.budgetEntries).get()).single;
+    expect(e.payee, 'Uber Eats');
+    expect(e.category, 'Dining');
+    expect(await repo.hasEntriesMissingPayee(profileId, now: now), isFalse);
+  });
 }

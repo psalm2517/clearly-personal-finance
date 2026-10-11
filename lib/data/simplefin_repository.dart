@@ -299,6 +299,48 @@ extension SimpleFinRepository on HomebaseRepository {
 
       final posted = transactions.where((t) => !t.pending).toList();
       if (posted.isEmpty) return none;
+
+      // Entries imported before the feed's payee was kept get it now, and
+      // an "Other" one is categorized from it.
+      final blanks =
+          await (_db.select(_db.budgetEntries)..where(
+                (e) =>
+                    e.profileId.equals(profileId) &
+                    e.payee.isNull() &
+                    e.externalId.like('${feed.remoteId}:%'),
+              ))
+              .get();
+      if (blanks.isNotEmpty) {
+        final byId = {for (final t in posted) '${feed.remoteId}:${t.id}': t};
+        for (final e in blanks) {
+          final t = byId[e.externalId];
+          if (t == null || t.payee == null) continue;
+          var category = e.category;
+          if (category == 'Other') {
+            category =
+                await categorize(
+                  profileId: profileId,
+                  description:
+                      '${e.description ?? ''} ${t.payee} '
+                      '${t.memo ?? ''}',
+                  amountCents: e.type == EntryType.income
+                      ? e.amountCents
+                      : -e.amountCents,
+                ) ??
+                categoryForMcc(t.mcc) ??
+                categoryForDescription('${t.payee} ${e.description ?? ''}') ??
+                'Other';
+          }
+          await (_db.update(
+            _db.budgetEntries,
+          )..where((x) => x.id.equals(e.id))).write(
+            BudgetEntriesCompanion(
+              payee: Value(t.payee),
+              category: Value(category),
+            ),
+          );
+        }
+      }
       final known =
           (await (_db.selectOnly(_db.budgetEntries)
                     ..addColumns([_db.budgetEntries.externalId])
@@ -1008,6 +1050,24 @@ extension SimpleFinRepository on HomebaseRepository {
             );
       }
     });
+  }
+
+  /// Whether any bank entry from the last 90 days has no payee yet, which a
+  /// wider read of the feed would fill in.
+  Future<bool> hasEntriesMissingPayee(int profileId, {DateTime? now}) async {
+    final since = (now ?? DateTime.now()).subtract(const Duration(days: 90));
+    final row =
+        await (_db.select(_db.budgetEntries)
+              ..where(
+                (e) =>
+                    e.profileId.equals(profileId) &
+                    e.externalId.isNotNull() &
+                    e.payee.isNull() &
+                    e.date.isBiggerOrEqualValue(since),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
   }
 
   /// Whether the bank feed owns this account, card or loan's balance. A
