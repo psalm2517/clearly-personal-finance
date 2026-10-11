@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/lazy_indexed_stack.dart';
 import 'accounts.dart';
 import 'accounts_overview.dart';
 import 'cards.dart';
@@ -21,7 +22,11 @@ class AccountsHubScreen extends StatefulWidget {
 
 class _AccountsHubScreenState extends State<AccountsHubScreen>
     with SingleTickerProviderStateMixin {
-  late final _controller = TabController(length: 5, vsync: this);
+  late final _controller = TabController(
+    length: 5,
+    vsync: this,
+    animationDuration: Duration.zero,
+  );
 
   @override
   void dispose() {
@@ -71,15 +76,18 @@ class _AccountsHubScreenState extends State<AccountsHubScreen>
           ),
         ),
         Expanded(
-          child: TabBarView(
-            controller: _controller,
-            children: [
-              AccountsOverview(onOpenTab: _controller.animateTo),
-              const AccountsScreen(),
-              const CardsScreen(),
-              const LoansScreen(),
-              const GoalsScreen(),
-            ],
+          child: ListenableBuilder(
+            listenable: _controller,
+            builder: (context, _) => LazyIndexedStack(
+              index: _controller.index,
+              builders: [
+                (_) => AccountsOverview(onOpenTab: _controller.animateTo),
+                (_) => const AccountsScreen(),
+                (_) => const CardsScreen(),
+                (_) => const LoansScreen(),
+                (_) => const GoalsScreen(),
+              ],
+            ),
           ),
         ),
       ],

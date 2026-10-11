@@ -12,6 +12,7 @@ import 'accounts_hub.dart';
 import 'budget.dart';
 import 'cash_flow.dart';
 import 'dashboard.dart';
+import '../widgets/lazy_indexed_stack.dart';
 import 'nav.dart';
 import 'recurring_hub.dart';
 import 'settings.dart';
@@ -40,14 +41,16 @@ class _AppShellState extends ConsumerState<AppShell> {
       final repo = ref.read(repositoryProvider);
       final now = DateTime.now();
       await repo.generateDuePaychecks(
-          profileId: profileId,
-          until: now.add(HomebaseRepository.paycheckHorizon));
+        profileId: profileId,
+        until: now.add(HomebaseRepository.paycheckHorizon),
+      );
       await repo.materializeReceivedPaychecks(profileId: profileId);
-      await repo.materializeAutopayPayments(
-          profileId: profileId, month: now);
+      await repo.materializeAutopayPayments(profileId: profileId, month: now);
       await repo.materializeDueTransfers(profileId: profileId, now: now);
       await repo.materializeDueRecurringTransactions(
-          profileId: profileId, now: now);
+        profileId: profileId,
+        now: now,
+      );
       // A point for today even on a day with no edits.
       await repo.recordNetWorthSnapshot(profileId: profileId);
       await repo.recordAccountSnapshotsForToday(profileId: profileId);
@@ -70,16 +73,6 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     final dest = ref.watch(navProvider);
 
-    final page = switch (dest) {
-      Dest.dashboard => const DashboardScreen(),
-      Dest.accounts => const AccountsHubScreen(),
-      Dest.transactions => const TransactionsScreen(),
-      Dest.cashFlow => const CashFlowScreen(),
-      Dest.budget => const BudgetScreen(),
-      Dest.recurring => const RecurringHubScreen(),
-      Dest.settings => const SettingsScreen(),
-    };
-
     return Scaffold(
       appBar: AppBar(
         title: Text(dest.title),
@@ -98,9 +91,11 @@ class _AppShellState extends ConsumerState<AppShell> {
             tooltip: flavor.isDark
                 ? 'Switch to light mode'
                 : 'Switch to dark mode',
-            icon: Icon(flavor.isDark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined),
+            icon: Icon(
+              flavor.isDark
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined,
+            ),
             onPressed: () =>
                 ref.read(flavorProvider.notifier).toggleLightDark(),
           ),
@@ -124,37 +119,58 @@ class _AppShellState extends ConsumerState<AppShell> {
             labelType: NavigationRailLabelType.all,
             destinations: const [
               NavigationRailDestination(
-                  icon: Icon(Icons.space_dashboard_outlined),
-                  selectedIcon: Icon(Icons.space_dashboard),
-                  label: Text('Dashboard')),
+                icon: Icon(Icons.space_dashboard_outlined),
+                selectedIcon: Icon(Icons.space_dashboard),
+                label: Text('Dashboard'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.account_balance_outlined),
-                  selectedIcon: Icon(Icons.account_balance),
-                  label: Text('Accounts')),
+                icon: Icon(Icons.account_balance_outlined),
+                selectedIcon: Icon(Icons.account_balance),
+                label: Text('Accounts'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.swap_horiz_outlined),
-                  selectedIcon: Icon(Icons.swap_horiz),
-                  label: Text('Transactions')),
+                icon: Icon(Icons.swap_horiz_outlined),
+                selectedIcon: Icon(Icons.swap_horiz),
+                label: Text('Transactions'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.alt_route_outlined),
-                  selectedIcon: Icon(Icons.alt_route),
-                  label: Text('Cash Flow')),
+                icon: Icon(Icons.alt_route_outlined),
+                selectedIcon: Icon(Icons.alt_route),
+                label: Text('Cash Flow'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.pie_chart_outline),
-                  selectedIcon: Icon(Icons.pie_chart),
-                  label: Text('Budget')),
+                icon: Icon(Icons.pie_chart_outline),
+                selectedIcon: Icon(Icons.pie_chart),
+                label: Text('Budget'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.autorenew_outlined),
-                  selectedIcon: Icon(Icons.autorenew),
-                  label: Text('Recurring')),
+                icon: Icon(Icons.autorenew_outlined),
+                selectedIcon: Icon(Icons.autorenew),
+                label: Text('Recurring'),
+              ),
               NavigationRailDestination(
-                  icon: Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings),
-                  label: Text('Settings')),
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings),
+                label: Text('Settings'),
+              ),
             ],
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: page),
+          Expanded(
+            child: LazyIndexedStack(
+              index: dest.index,
+              // Same order as the Dest enum.
+              builders: [
+                (_) => const DashboardScreen(),
+                (_) => const AccountsHubScreen(),
+                (_) => const TransactionsScreen(),
+                (_) => const CashFlowScreen(),
+                (_) => const BudgetScreen(),
+                (_) => const RecurringHubScreen(),
+                (_) => const SettingsScreen(),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -181,12 +197,14 @@ class _ProfileSwitcher extends ConsumerWidget {
             items: [
               for (final p in profiles)
                 DropdownMenuItem(
-                    value: p.id, child: Text('Viewing: ${p.name}')),
+                  value: p.id,
+                  child: Text('Viewing: ${p.name}'),
+                ),
             ],
             onChanged: (id) {
               if (id == null) return;
-              ref.read(activeProfileProvider.notifier).state =
-                  profiles.firstWhere((p) => p.id == id);
+              ref.read(activeProfileProvider.notifier).state = profiles
+                  .firstWhere((p) => p.id == id);
             },
           ),
         );

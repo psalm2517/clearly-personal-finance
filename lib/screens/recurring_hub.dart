@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/lazy_indexed_stack.dart';
 import 'bills.dart';
 import 'paychecks.dart';
 import 'recurring.dart';
@@ -18,7 +19,11 @@ class RecurringHubScreen extends StatefulWidget {
 
 class _RecurringHubScreenState extends State<RecurringHubScreen>
     with SingleTickerProviderStateMixin {
-  late final _controller = TabController(length: 5, vsync: this);
+  late final _controller = TabController(
+    length: 5,
+    vsync: this,
+    animationDuration: Duration.zero,
+  );
 
   @override
   void dispose() {
@@ -66,15 +71,18 @@ class _RecurringHubScreenState extends State<RecurringHubScreen>
           ),
         ),
         Expanded(
-          child: TabBarView(
-            controller: _controller,
-            children: const [
-              UpcomingScreen(),
-              BillsScreen(),
-              PaychecksScreen(),
-              TransfersScreen(),
-              RecurringTransactionsScreen(),
-            ],
+          child: ListenableBuilder(
+            listenable: _controller,
+            builder: (context, _) => LazyIndexedStack(
+              index: _controller.index,
+              builders: [
+                (_) => const UpcomingScreen(),
+                (_) => const BillsScreen(),
+                (_) => const PaychecksScreen(),
+                (_) => const TransfersScreen(),
+                (_) => const RecurringTransactionsScreen(),
+              ],
+            ),
           ),
         ),
       ],

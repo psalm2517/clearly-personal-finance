@@ -23,8 +23,7 @@ class AccountsOverview extends ConsumerStatefulWidget {
 }
 
 class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
-  static const _ranges = {30: '1 month', 90: '3 months', 180: '6 months'};
-  int _days = 180;
+  _Range _range = _Range.sixMonths;
   bool _percent = false;
 
   @override
@@ -34,7 +33,10 @@ class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
     final scheme = Theme.of(context).colorScheme;
 
     return StreamBuilder<List<NetWorthSnapshot>>(
-      stream: repo.watchNetWorthHistory(profileId: profileId, days: _days),
+      stream: repo.watchNetWorthHistory(
+        profileId: profileId,
+        days: _range.days(DateTime.now()),
+      ),
       builder: (context, histSnap) {
         final history = histSnap.data ?? const <NetWorthSnapshot>[];
         return StreamBuilder<List<Object>>(
@@ -51,8 +53,7 @@ class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
             final cards = data == null
                 ? const <CreditCard>[]
                 : data[1] as List<CreditCard>;
-            final loans =
-                data == null ? const <Loan>[] : data[2] as List<Loan>;
+            final loans = data == null ? const <Loan>[] : data[2] as List<Loan>;
 
             final groups = _groups(context, accounts, cards, loans);
             final assets = groups
@@ -68,9 +69,8 @@ class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
                 _NetWorthHeader(
                   netCents: assets - debts,
                   history: history,
-                  days: _days,
-                  ranges: _ranges,
-                  onRange: (d) => setState(() => _days = d),
+                  range: _range,
+                  onRange: (r) => setState(() => _range = r),
                 ),
                 const SizedBox(height: 12),
                 if (history.length >= 2)
@@ -158,17 +158,14 @@ class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
       leading: accountBadge(context, a.type, size: 32),
     );
 
-    _Group assetGroup(
-      String title,
-      Color color,
-      Iterable<Account> list,
-    ) => _Group(
-      title: title,
-      color: color,
-      tab: 1,
-      isDebt: false,
-      rows: [for (final a in list) accountRow(a)],
-    );
+    _Group assetGroup(String title, Color color, Iterable<Account> list) =>
+        _Group(
+          title: title,
+          color: color,
+          tab: 1,
+          isDebt: false,
+          rows: [for (final a in list) accountRow(a)],
+        );
 
     final scheme = Theme.of(context).colorScheme;
     final cash = accounts.where((a) => cashTypes.contains(a.type));
@@ -215,6 +212,54 @@ class _AccountsOverviewState extends ConsumerState<AccountsOverview> {
   }
 }
 
+/// A dollar figure in the normal UI font at full strength: tabular digits
+/// keep columns aligned, and the cents are the same color as the dollars.
+Widget _money(
+  BuildContext context,
+  int cents, {
+  double size = 15,
+  FontWeight weight = FontWeight.w600,
+  Color? color,
+}) {
+  final c = color ?? Theme.of(context).colorScheme.onSurface;
+  return MoneyText(
+    fmtCents(cents),
+    centsColor: c,
+    style: TextStyle(
+      color: c,
+      fontSize: size,
+      fontWeight: weight,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    ),
+  );
+}
+
+/// How far back the net worth chart looks. "All time" is a long window
+/// rather than a special query: history only goes back as far as Clearly
+/// has been recording, so a big number simply returns everything.
+enum _Range {
+  month('1 month', 'the last month'),
+  quarter('3 months', 'the last 3 months'),
+  sixMonths('6 months', 'the last 6 months'),
+  ytd('Year to date', 'the year so far'),
+  year('1 year', 'the last year'),
+  all('All time', 'all time');
+
+  const _Range(this.label, this.phrase);
+  final String label;
+  final String phrase;
+
+  int days(DateTime now) => switch (this) {
+    month => 30,
+    quarter => 90,
+    sixMonths => 180,
+    // Days since 1 January, inclusive of today.
+    ytd => now.difference(DateTime(now.year)).inDays + 1,
+    year => 365,
+    all => 36500,
+  };
+}
+
 class _Row {
   const _Row({
     required this.name,
@@ -251,16 +296,14 @@ class _NetWorthHeader extends StatelessWidget {
   const _NetWorthHeader({
     required this.netCents,
     required this.history,
-    required this.days,
-    required this.ranges,
+    required this.range,
     required this.onRange,
   });
 
   final int netCents;
   final List<NetWorthSnapshot> history;
-  final int days;
-  final Map<int, String> ranges;
-  final ValueChanged<int> onRange;
+  final _Range range;
+  final ValueChanged<_Range> onRange;
 
   @override
   Widget build(BuildContext context) {
@@ -289,19 +332,13 @@ class _NetWorthHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              MoneyText(
-                fmtCents(netCents),
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontFamily: 'monospace',
-                ),
-              ),
+              _money(context, netCents, size: 34, weight: FontWeight.w700),
               if (change != null && history.length >= 2) ...[
                 const SizedBox(height: 4),
                 Text(
                   '${up ? '↑' : '↓'} ${fmtCents(change.abs())}'
                   '${percent == null ? '' : ' (${percent.abs().toStringAsFixed(1)}%)'}'
-                  ' over ${ranges[days]}',
+                  ' over ${range.phrase}',
                   style: TextStyle(
                     color: up ? scheme.primary : scheme.error,
                     fontWeight: FontWeight.w600,
@@ -311,15 +348,15 @@ class _NetWorthHeader extends StatelessWidget {
             ],
           ),
         ),
-        DropdownButton<int>(
-          value: days,
+        DropdownButton<_Range>(
+          value: range,
           underline: const SizedBox.shrink(),
-          onChanged: (d) {
-            if (d != null) onRange(d);
+          onChanged: (r) {
+            if (r != null) onRange(r);
           },
           items: [
-            for (final e in ranges.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
+            for (final r in _Range.values)
+              DropdownMenuItem(value: r, child: Text(r.label)),
           ],
         ),
       ],
@@ -363,13 +400,11 @@ class _GroupSection extends StatelessWidget {
                     ),
                   ),
                 ),
-                MoneyText(
-                  fmtCents(group.totalCents),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'monospace',
-                    fontSize: 16,
-                  ),
+                _money(
+                  context,
+                  group.totalCents,
+                  size: 17,
+                  weight: FontWeight.w700,
                 ),
               ],
             ),
@@ -406,10 +441,7 @@ class _GroupSection extends StatelessWidget {
                             ],
                           ),
                         ),
-                        MoneyText(
-                          fmtCents(r.cents),
-                          style: const TextStyle(fontFamily: 'monospace'),
-                        ),
+                        _money(context, r.cents, size: 15),
                       ],
                     ),
                   ),
@@ -463,9 +495,7 @@ class _SummaryPanel extends StatelessWidget {
               ),
               SegmentedButton<bool>(
                 showSelectedIcon: false,
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                ),
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
                 segments: const [
                   ButtonSegment(value: false, label: Text('Totals')),
                   ButtonSegment(value: true, label: Text('Percent')),
@@ -522,13 +552,7 @@ class _SummarySection extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
-            MoneyText(
-              fmtCents(total),
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            _money(context, total, size: 16, weight: FontWeight.w700),
           ],
         ),
         const SizedBox(height: 8),
@@ -555,10 +579,7 @@ class _SummarySection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         if (groups.isEmpty)
-          Text(
-            'None',
-            style: TextStyle(color: scheme.onSurfaceVariant),
-          ),
+          Text('None', style: TextStyle(color: scheme.onSurfaceVariant)),
         for (final g in groups)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -579,8 +600,8 @@ class _SummarySection extends StatelessWidget {
                       ? '${total <= 0 ? 0 : (g.totalCents / total * 100).round()}%'
                       : fmtCents(g.totalCents),
                   style: const TextStyle(
-                    fontFamily: 'monospace',
                     fontWeight: FontWeight.w600,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
