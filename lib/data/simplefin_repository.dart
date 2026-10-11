@@ -220,7 +220,7 @@ extension SimpleFinRepository on HomebaseRepository {
       // Money moving between your own accounts is not spending or income:
       // pair it up first, then see which of what is left is a bill or a
       // paycheck you already track.
-      final paired = await _pairMovements(conn.profileId, newIds);
+      final paired = await reconcileBankMovements(conn.profileId, now);
       final recognized = await _recognizeRecurring(conn.profileId, newIds);
 
       await _backfillHistory(
@@ -373,8 +373,9 @@ extension SimpleFinRepository on HomebaseRepository {
           BudgetEntriesCompanion(externalId: Value('${feed.remoteId}:${t.id}')),
         );
       }
-      if (toInsert.isEmpty)
+      if (toInsert.isEmpty) {
         return (imported: 0, matched: matched, ids: <int>[]);
+      }
 
       final batchId = await _db
           .into(_db.importBatches)
@@ -432,25 +433,29 @@ extension SimpleFinRepository on HomebaseRepository {
     });
   }
 
-  /// Finds money that left one linked account and arrived in another, and
-  /// records it as a movement instead of spending plus income.
+  /// Finds money that moved between your own accounts and records it as a
+  /// movement instead of spending plus income. Runs over everything the
+  /// feed has imported recently, not just what is new, so an item whose
+  /// other half arrived in an earlier sync is still found, and so entries
+  /// imported before this existed get tidied up.
   ///
-  /// A card payment shows up twice in the feeds: as an outflow from the bank
-  /// account and as a credit on the card. Left alone, both would land in the
-  /// budget (the payment as an expense, the credit as income) and the
-  /// purchases on the card would already have been counted. Matching the two
-  /// by amount and date and keeping only a payment record fixes that.
+  /// Three passes:
+  ///  1. An outflow from an account against an inflow to another account or
+  ///     a card, same amount, a few days apart. Account numbers in the bank's
+  ///     own wording ("...account XXXXX8841", "ending in 0857") decide
+  ///     between candidates when several have the same amount.
+  ///  2. A credit on a card that reads like a payment but has no outflow in
+  ///     Clearly (it was paid from an account that is not linked): a card
+  ///     payment with an unknown source.
+  ///  3. An outflow that reads like a card payment and names a card, whose
+  ///     credit has not shown up: a payment from that account.
   ///
-  /// Both entries are removed and remembered in [SimpleFinSkipped] so the
-  /// next sync does not import them again. Returns how many pairs were made.
-  Future<int> _pairMovements(int profileId, List<int> freshIds) async {
-    if (freshIds.isEmpty) return 0;
-    final fresh = await (_db.select(
-      _db.budgetEntries,
-    )..where((e) => e.id.isIn(freshIds))).get();
-    // Anything still unpaired from recent syncs can be the other half.
-    final since = DateTime.now().subtract(const Duration(days: 14));
-    final recent =
+  /// Entries that become movements are removed and remembered in
+  /// [SimpleFinSkipped] so a sync does not import them again. Returns how
+  /// many movements were recorded.
+  Future<int> reconcileBankMovements(int profileId, DateTime now) async {
+    final since = now.subtract(const Duration(days: 120));
+    final pool =
         await (_db.select(_db.budgetEntries)..where(
               (e) =>
                   e.profileId.equals(profileId) &
@@ -458,73 +463,137 @@ extension SimpleFinRepository on HomebaseRepository {
                   e.date.isBiggerOrEqualValue(since),
             ))
             .get();
-    final pool = {
-      for (final e in [...recent, ...fresh]) e.id: e,
-    }.values.toList();
+    if (pool.isEmpty) return 0;
+
+    // Digits that identify each linked account or card in the bank's text.
+    final feedRows = await (_db.select(_db.simpleFinFeedAccounts).join([
+      innerJoin(
+        _db.simpleFinConnections,
+        _db.simpleFinConnections.id.equalsExp(
+          _db.simpleFinFeedAccounts.connectionId,
+        ),
+      ),
+    ])..where(_db.simpleFinConnections.profileId.equals(profileId))).get();
+    final last4 = <String, Set<String>>{}; // 'a:<id>' / 'c:<id>' -> digits
+    final cardNames = <int, String>{};
+    for (final r in feedRows) {
+      final f = r.readTable(_db.simpleFinFeedAccounts);
+      if (f.targetId == null) continue;
+      final key = switch (f.target) {
+        FeedTarget.account => 'a:${f.targetId}',
+        FeedTarget.card => 'c:${f.targetId}',
+        _ => null,
+      };
+      if (key == null) continue;
+      last4[key] = {
+        for (final m in RegExp(r'\d{4}').allMatches(f.name)) m.group(0)!,
+      };
+      if (f.target == FeedTarget.card) {
+        cardNames[f.targetId!] = f.name.toLowerCase();
+      }
+    }
+    String keyOf(BudgetEntry e) =>
+        e.cardId != null ? 'c:${e.cardId}' : 'a:${e.accountId}';
+    bool mentions(String text, String key) =>
+        (last4[key] ?? const {}).any(text.contains);
 
     DateTime day(DateTime d) => DateTime.utc(d.year, d.month, d.day);
     final used = <int>{};
-    var pairs = 0;
+    var moved = 0;
 
-    // An outflow from an account, an inflow to a different account or card.
-    for (final out in fresh) {
-      if (used.contains(out.id) ||
-          out.type != EntryType.expense ||
-          out.accountId == null) {
-        continue;
+    Future<void> retire(BudgetEntry e) async {
+      if (e.externalId != null) {
+        await _db
+            .into(_db.simpleFinSkipped)
+            .insert(
+              SimpleFinSkippedCompanion.insert(
+                profileId: profileId,
+                externalId: e.externalId!,
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
       }
-      BudgetEntry? best;
-      var bestGap = 4;
-      for (final inn in pool) {
-        if (used.contains(inn.id) ||
-            inn.id == out.id ||
-            inn.type != EntryType.income ||
-            inn.amountCents != out.amountCents) {
-          continue;
-        }
-        final intoOther =
-            inn.cardId != null ||
-            (inn.accountId != null && inn.accountId != out.accountId);
-        if (!intoOther) continue;
-        final gap = day(inn.date).difference(day(out.date)).inDays.abs();
-        if (gap < bestGap) {
-          best = inn;
-          bestGap = gap;
-        }
-      }
-      if (best == null) continue;
-      final inn = best;
+      await (_db.delete(
+        _db.budgetEntries,
+      )..where((x) => x.id.equals(e.id))).go();
+      used.add(e.id);
+    }
 
+    final paymentWords = RegExp(
+      r'payment|pymt|\bpmt\b|thank you|autopay|card ending',
+      caseSensitive: false,
+    );
+    final transferWords = RegExp(
+      r'transfer|xfer|\btrf\b|funds|dda|savings|checking|brokerage|bkrg|'
+      r'deposit from|withdrawal to',
+      caseSensitive: false,
+    );
+
+    // ---- pass 1: outflow against inflow, best candidates first ----
+    final outs = [
+      for (final e in pool)
+        if (e.type == EntryType.expense && e.accountId != null) e,
+    ];
+    final ins = [
+      for (final e in pool)
+        if (e.type == EntryType.income) e,
+    ];
+    final candidates = <({BudgetEntry out, BudgetEntry inn, int score})>[];
+    for (final o in outs) {
+      for (final i in ins) {
+        if (i.amountCents != o.amountCents) continue;
+        if (i.cardId == null && i.accountId == o.accountId) continue;
+        final gap = day(i.date).difference(day(o.date)).inDays.abs();
+        if (gap > 4) continue;
+        var score = 100 - gap * 5;
+        final oText = o.description ?? '';
+        final iText = i.description ?? '';
+        final named = mentions(oText, keyOf(i)) || mentions(iText, keyOf(o));
+        if (mentions(oText, keyOf(i))) score += 40;
+        if (mentions(iText, keyOf(o))) score += 40;
+        // Equal amounts a few days apart are not enough on their own: a
+        // $100 purchase and a $100 refund would pair. Something in the
+        // bank's wording has to say it is a transfer or a payment.
+        final wording = i.cardId != null
+            ? paymentWords.hasMatch(oText) || paymentWords.hasMatch(iText)
+            : transferWords.hasMatch(oText) || transferWords.hasMatch(iText);
+        if (!named && !wording) continue;
+        candidates.add((out: o, inn: i, score: score));
+      }
+    }
+    candidates.sort((a, b) {
+      final c = b.score.compareTo(a.score);
+      return c != 0 ? c : a.out.id.compareTo(b.out.id);
+    });
+    for (final c in candidates) {
+      if (used.contains(c.out.id) || used.contains(c.inn.id)) continue;
       await _db.transaction(() async {
-        if (inn.cardId != null) {
-          // Paying the card from the account: a payment record, with no
-          // balance change since both balances come from the feed.
+        if (c.inn.cardId != null) {
           await _db
               .into(_db.payments)
               .insert(
                 PaymentsCompanion.insert(
                   profileId: profileId,
                   accountType: PaymentAccountType.card,
-                  accountId: inn.cardId!,
-                  amountCents: out.amountCents,
-                  date: out.date,
+                  accountId: c.inn.cardId!,
+                  amountCents: c.out.amountCents,
+                  date: c.out.date,
                   note: const Value('Matched from your bank'),
-                  fromAccountId: Value(out.accountId),
+                  fromAccountId: Value(c.out.accountId),
                 ),
               );
         } else {
-          // Account to account: the same record a manual transfer leaves.
           final transferId = await _db
               .into(_db.recurringTransfers)
               .insert(
                 RecurringTransfersCompanion.insert(
                   profileId: profileId,
                   name: 'Transfer',
-                  fromAccountId: out.accountId!,
-                  toAccountId: inn.accountId!,
-                  amountCents: out.amountCents,
+                  fromAccountId: c.out.accountId!,
+                  toAccountId: c.inn.accountId!,
+                  amountCents: c.out.amountCents,
                   frequency: PayFrequency.monthly,
-                  anchorDate: out.date,
+                  anchorDate: c.out.date,
                   active: const Value(false),
                 ),
               );
@@ -534,34 +603,101 @@ extension SimpleFinRepository on HomebaseRepository {
                 TransferLogsCompanion.insert(
                   profileId: profileId,
                   transferId: transferId,
-                  date: out.date,
-                  amountCents: out.amountCents,
+                  date: c.out.date,
+                  amountCents: c.out.amountCents,
                 ),
               );
         }
-        for (final e in [out, inn]) {
-          if (e.externalId != null) {
-            await _db
-                .into(_db.simpleFinSkipped)
-                .insert(
-                  SimpleFinSkippedCompanion.insert(
-                    profileId: profileId,
-                    externalId: e.externalId!,
-                  ),
-                  mode: InsertMode.insertOrIgnore,
-                );
-          }
-          await (_db.delete(
-            _db.budgetEntries,
-          )..where((x) => x.id.equals(e.id))).go();
-        }
+        await retire(c.out);
+        await retire(c.inn);
       });
-      used
-        ..add(out.id)
-        ..add(inn.id);
-      pairs++;
+      moved++;
     }
-    return pairs;
+
+
+    // A payment already on file for this card and amount, near this date.
+    Future<Payment?> existingPayment(
+      int cardId,
+      int cents,
+      DateTime date,
+    ) async {
+      final rows =
+          await (_db.select(_db.payments)..where(
+                (p) =>
+                    p.profileId.equals(profileId) &
+                    p.accountType.equalsValue(PaymentAccountType.card) &
+                    p.accountId.equals(cardId) &
+                    p.amountCents.equals(cents),
+              ))
+              .get();
+      for (final p in rows) {
+        if (day(p.date).difference(day(date)).inDays.abs() <= 4) return p;
+      }
+      return null;
+    }
+
+    // ---- pass 2: card credits that are payments from somewhere unlinked ----
+    for (final i in ins) {
+      if (used.contains(i.id) || i.cardId == null) continue;
+      if (!paymentWords.hasMatch(i.description ?? '')) continue;
+      await _db.transaction(() async {
+        final have = await existingPayment(i.cardId!, i.amountCents, i.date);
+        if (have == null) {
+          await _db
+              .into(_db.payments)
+              .insert(
+                PaymentsCompanion.insert(
+                  profileId: profileId,
+                  accountType: PaymentAccountType.card,
+                  accountId: i.cardId!,
+                  amountCents: i.amountCents,
+                  date: i.date,
+                  note: const Value('Matched from your bank'),
+                ),
+              );
+        }
+        await retire(i);
+      });
+      moved++;
+    }
+
+    // ---- pass 3: outflows that name a card whose credit has not shown ----
+    for (final o in outs) {
+      if (used.contains(o.id)) continue;
+      final text = o.description ?? '';
+      if (!paymentWords.hasMatch(text)) continue;
+      final named = [
+        for (final entry in last4.entries)
+          if (entry.key.startsWith('c:') && mentions(text, entry.key))
+            int.parse(entry.key.substring(2)),
+      ];
+      if (named.length != 1) continue; // unknown or ambiguous: leave it
+      final cardId = named.single;
+      await _db.transaction(() async {
+        final have = await existingPayment(cardId, o.amountCents, o.date);
+        if (have == null) {
+          await _db
+              .into(_db.payments)
+              .insert(
+                PaymentsCompanion.insert(
+                  profileId: profileId,
+                  accountType: PaymentAccountType.card,
+                  accountId: cardId,
+                  amountCents: o.amountCents,
+                  date: o.date,
+                  note: const Value('Matched from your bank'),
+                  fromAccountId: Value(o.accountId),
+                ),
+              );
+        } else if (have.fromAccountId == null) {
+          await (_db.update(_db.payments)..where((p) => p.id.equals(have.id)))
+              .write(PaymentsCompanion(fromAccountId: Value(o.accountId)));
+        }
+        await retire(o);
+      });
+      moved++;
+    }
+    return moved;
   }
 
   /// Recognises new bank transactions as a bill paid or a paycheck received
@@ -614,7 +750,11 @@ extension SimpleFinRepository on HomebaseRepository {
           for (final shift in const [0, -1, 1]) {
             final period = DateTime(e.date.year, e.date.month + shift);
             if (!HomebaseRepository.billFallsIn(b, period)) continue;
-            final due = HomebaseRepository.dayInMonth(period.year, period.month, b.dueDay);
+            final due = HomebaseRepository.dayInMonth(
+              period.year,
+              period.month,
+              b.dueDay,
+            );
             if (day(due).difference(day(e.date)).inDays.abs() > 7) continue;
             final gap = (e.amountCents - b.amountCents).abs();
             final ratio = b.amountCents == 0 ? 1.0 : gap / b.amountCents;

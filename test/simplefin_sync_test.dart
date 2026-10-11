@@ -377,6 +377,106 @@ void main() {
     expect(a.balanceCents, 150000, reason: 'the bank owns the balance');
   });
 
+  group('real-world patterns', () {
+    test('entries imported earlier are tidied: transfer, card payments, and '
+        'a card credit paid from an unlinked account', () async {
+      // Imported as plain entries first, the way they were before pairing
+      // existed.
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'TOTAL CHECKING (8841)',
+          'balance': '125.00',
+          'transactions': [
+            txn('x1', '-510.00', 'AMERICANEXPRESS TRANSFER 000320048988169 WEB ID: 1',
+                posted: DateTime(2026, 6, 6)),
+            txn('x2', '-100.00', 'Payment to Chase card ending in 0857 10/08',
+                posted: DateTime(2026, 6, 8)),
+            txn('x3', '-50.00', 'AMERICAN EXPRESS ACH PMT M3724 WEB ID: 2',
+                posted: DateTime(2026, 6, 8)),
+            txn('x4', '-5.00', 'COFFEE', posted: DateTime(2026, 6, 8)),
+          ],
+        },
+        {
+          'id': 'SAV',
+          'name': 'High Yield Savings Account (8169)',
+          'balance': '1749.66',
+          'transactions': [
+            txn('s1', '510.00',
+                'Internet transfer from JPMORGAN CHASE BANK, NA DDA account XXXXX8841',
+                posted: DateTime(2026, 6, 5)),
+            txn('s2', '50.00',
+                'Internet transfer from JPMORGAN CHASE BANK, NA DDA account XXXXX8841',
+                posted: DateTime(2026, 6, 9)),
+          ],
+        },
+        {
+          'id': 'CHASE',
+          'name': 'Chase Freedom Unlimited (0857)',
+          'balance': '-493.26',
+          'transactions': [
+            txn('c1', '100.00', 'Payment Thank You-Mobile',
+                posted: DateTime(2026, 6, 8)),
+          ],
+        },
+        {
+          'id': 'DELTA',
+          'name': 'Delta SkyMiles Gold Card (1006)',
+          'balance': '-343.10',
+          'transactions': [
+            // Paid from an account that is not linked, so no outflow exists.
+            txn('d1', '140.24', 'MOBILE PAYMENT - THANK YOU',
+                posted: DateTime(2026, 6, 8)),
+            txn('d2', '50.00', 'MOBILE PAYMENT - THANK YOU',
+                posted: DateTime(2026, 6, 8)),
+            txn('d3', '-12.00', 'GAS STATION', posted: DateTime(2026, 6, 7)),
+          ],
+        },
+      ];
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      for (final a in await feed()) {
+        await repo.createFromSimpleFinAccount(
+          profileId: profileId,
+          feedAccountId: a.id,
+          kind: a.name.startsWith('Chase') || a.name.startsWith('Delta')
+              ? FeedTarget.card
+              : FeedTarget.account,
+        );
+      }
+
+      final r = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(r.pairedMovements, greaterThanOrEqualTo(5));
+
+      final left = await db.select(db.budgetEntries).get();
+      expect(left.map((e) => e.description).toSet(),
+          {'COFFEE', 'GAS STATION'},
+          reason: 'only real spending is left; nothing counted as income');
+      expect(left.where((e) => e.type == EntryType.income), isEmpty);
+
+      // The $510 moved from checking to savings, not income.
+      final logs = await db.select(db.transferLogs).get();
+      expect(logs.where((l) => l.amountCents == 51000), hasLength(1));
+
+      // Card payments are recorded, with a source when one is known.
+      final payments = await db.select(db.payments).get();
+      expect(payments.where((p) => p.amountCents == 10000), hasLength(1));
+      expect(payments.firstWhere((p) => p.amountCents == 10000).fromAccountId,
+          isNotNull);
+      expect(payments.firstWhere((p) => p.amountCents == 14024).fromAccountId,
+          isNull,
+          reason: 'paid from an account Clearly does not know');
+
+      // And the next sync leaves everything as it is.
+      final again = await repo.syncSimpleFin(
+          profileId: profileId, client: client, now: now);
+      expect(again.newTransactions, 0);
+      expect(await db.select(db.budgetEntries).get(), hasLength(2));
+      expect(await db.select(db.payments).get(), hasLength(payments.length));
+    });
+  });
+
   group('with Clearly Sync on', () {
     Future<void> linkAll() async {
       await repo.connectSimpleFin(
