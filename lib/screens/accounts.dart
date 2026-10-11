@@ -342,7 +342,7 @@ class _AccountRow extends ConsumerWidget {
                 fmtCents(account.balanceCents),
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
+                  fontFeatures: const [FontFeature.tabularFigures()],
                   color: account.balanceCents < 0 ? scheme.error : null,
                 ),
               ),

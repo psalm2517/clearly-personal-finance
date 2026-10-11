@@ -55,7 +55,7 @@ class TransactionHistory extends StatelessWidget {
                   '${a.amountCents < 0 ? '-' : '+'}'
                   '${fmtCents(a.amountCents.abs())}',
                   style: TextStyle(
-                    fontFamily: 'monospace',
+                    fontFeatures: const [FontFeature.tabularFigures()],
                     fontWeight: FontWeight.w600,
                     color: a.amountCents < 0 ? scheme.error : scheme.primary,
                   ),

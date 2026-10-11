@@ -61,7 +61,7 @@ class LoansScreen extends ConsumerWidget {
                       trailing: Text(
                         fmtCents(l.balanceCents),
                         style: const TextStyle(
-                          fontFamily: 'monospace',
+                          fontFeatures: [FontFeature.tabularFigures()],
                           fontWeight: FontWeight.w600,
                         ),
                       ),

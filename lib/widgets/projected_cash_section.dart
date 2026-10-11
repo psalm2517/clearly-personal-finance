@@ -121,7 +121,7 @@ class _ProjectedCashBalanceSectionState
                     style: Theme.of(context).textTheme.headlineMedium
                         ?.copyWith(
                           fontWeight: FontWeight.w700,
-                          fontFamily: 'monospace',
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                   ),
                   const SizedBox(height: 4),

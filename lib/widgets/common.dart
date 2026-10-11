@@ -278,7 +278,7 @@ class StatCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: color,
                   fontWeight: FontWeight.w700,
-                  fontFamily: 'monospace',
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
               if (note != null)
@@ -323,7 +323,7 @@ class DetailRow extends StatelessWidget {
             value,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontFamily: 'monospace',
+              fontFeatures: const [FontFeature.tabularFigures()],
               color: color,
             ),
           ),

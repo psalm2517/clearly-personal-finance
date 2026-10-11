@@ -114,7 +114,7 @@ class _DuplicatesScreenState extends ConsumerState<DuplicatesScreen> {
                           secondary: MoneyText(
                             '${e.type == EntryType.income ? '+' : '-'}${fmtCents(e.amountCents)}',
                             style: TextStyle(
-                              fontFamily: 'monospace',
+                              fontFeatures: const [FontFeature.tabularFigures()],
                               fontWeight: FontWeight.w600,
                               color: e.type == EntryType.income
                                   ? scheme.primary

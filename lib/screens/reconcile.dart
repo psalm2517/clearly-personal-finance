@@ -66,7 +66,7 @@ class _ReconcileScreenState extends ConsumerState<ReconcileScreen> {
                           const Text('Tracked balance'),
                           MoneyText(fmtCents(account.balanceCents),
                               style: const TextStyle(
-                                  fontFamily: 'monospace',
+                                  fontFeatures: [FontFeature.tabularFigures()],
                                   fontWeight: FontWeight.w600)),
                         ],
                       ),
@@ -274,7 +274,7 @@ class _ReconcileScreenState extends ConsumerState<ReconcileScreen> {
                         '${activity[i].amountCents >= 0 ? '+' : '-'}'
                         '${fmtCents(activity[i].amountCents.abs())}',
                         style: TextStyle(
-                          fontFamily: 'monospace',
+                          fontFeatures: const [FontFeature.tabularFigures()],
                           fontWeight: FontWeight.w600,
                           color: activity[i].amountCents >= 0
                               ? scheme.primary

@@ -333,7 +333,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           MoneyText(
             '${e.type == EntryType.income ? '+' : '-'}${fmtCents(e.amountCents)}',
             style: TextStyle(
-              fontFamily: 'monospace',
+              fontFeatures: const [FontFeature.tabularFigures()],
               fontWeight: FontWeight.w600,
               color: e.type == EntryType.income ? scheme.primary : null,
             ),
@@ -405,7 +405,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       trailing: MoneyText(
         fmtCents(m.amountCents),
         style: const TextStyle(
-            fontFamily: 'monospace', fontWeight: FontWeight.w600),
+            fontFeatures: [FontFeature.tabularFigures()], fontWeight: FontWeight.w600),
       ),
     );
   }

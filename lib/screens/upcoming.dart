@@ -103,11 +103,12 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                           '${item.amountCents >= 0 ? '+' : '-'}'
                           '${fmtCents(item.amountCents.abs())}',
                           style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'monospace',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [FontFeature.tabularFigures()],
                             color: item.amountCents >= 0
                                 ? scheme.primary
-                                : null,
+                                : scheme.onSurface,
                           ),
                         ),
                       ),

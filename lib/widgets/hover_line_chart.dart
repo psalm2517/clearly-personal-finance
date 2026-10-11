@@ -102,7 +102,7 @@ class _HoverLineChartState extends State<HoverLineChart> {
                               fmtCents(widget.values[hover]),
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                  fontFamily: 'monospace',
+                                  fontFeatures: [FontFeature.tabularFigures()],
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12),
                             ),

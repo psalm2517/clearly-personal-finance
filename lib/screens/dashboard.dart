@@ -772,7 +772,7 @@ class _NetWorthHero extends StatelessWidget {
         MoneyText(
           fmtCents(last.netWorthCents),
           style: Theme.of(context).textTheme.displaySmall
-              ?.copyWith(fontWeight: FontWeight.w700, fontFamily: 'monospace'),
+              ?.copyWith(fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]),
         ),
         const SizedBox(height: 4),
         if (history.length < 2)
@@ -886,7 +886,7 @@ class _AssetsDebtBreakdown extends StatelessWidget {
             MoneyText(
               fmtCents(net.assetsCents),
               style: const TextStyle(
-                fontFamily: 'monospace',
+                fontFeatures: [FontFeature.tabularFigures()],
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -908,7 +908,7 @@ class _AssetsDebtBreakdown extends StatelessWidget {
             MoneyText(
               fmtCents(net.debtsCents),
               style: const TextStyle(
-                fontFamily: 'monospace',
+                fontFeatures: [FontFeature.tabularFigures()],
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -985,7 +985,7 @@ class _AssetsDebtBreakdown extends StatelessWidget {
           MoneyText(
             '${negative ? '-' : ''}${fmtCents(amountCents)}',
             style: TextStyle(
-              fontFamily: 'monospace',
+              fontFeatures: const [FontFeature.tabularFigures()],
               fontWeight: FontWeight.w600,
               color: negative ? scheme.error : scheme.onSurface,
             ),
@@ -1108,7 +1108,7 @@ class _CashOutlookCard extends ConsumerWidget {
                   fmtCents(points.last.balanceCents),
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
-                        fontFamily: 'monospace',
+                        fontFeatures: const [FontFeature.tabularFigures()],
                         color: dips ? scheme.onErrorContainer : null,
                       ),
                 ),
