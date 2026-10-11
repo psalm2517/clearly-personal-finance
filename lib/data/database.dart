@@ -248,6 +248,52 @@ class ImportBatches extends Table {
       integer().withDefault(const Constant(0))();
 }
 
+/// A link to a SimpleFIN Bridge account holder. [accessUrl] carries
+/// credentials for that read-only feed (never a bank login), so it is kept
+/// out of backup files.
+class SimpleFinConnections extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get profileId => integer().references(Profiles, #id)();
+  TextColumn get label => text().withDefault(const Constant('SimpleFIN'))();
+  TextColumn get accessUrl => text()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  /// When the last sync finished, and what it said ("12 new", or the
+  /// reason it failed), so the screen can show it without re-running.
+  DateTimeColumn get lastSyncAt => dateTime().nullable()();
+  TextColumn get lastSyncMessage => text().nullable()();
+}
+
+/// What a feed account has been matched to in Clearly.
+enum FeedTarget { unmapped, account, card, loan, ignored }
+
+/// One account the Bridge reports. Rows start [FeedTarget.unmapped] and wait
+/// in the review list until the person decides where they belong, so nothing
+/// is imported into the wrong place automatically.
+class SimpleFinFeedAccounts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get connectionId => integer()
+      .references(SimpleFinConnections, #id, onDelete: KeyAction.cascade)();
+
+  /// The Bridge's id for the account; transaction ids are unique only
+  /// within it.
+  TextColumn get remoteId => text()();
+  TextColumn get name => text()();
+  TextColumn get orgName => text().nullable()();
+  IntColumn get balanceCents => integer().withDefault(const Constant(0))();
+  DateTimeColumn get balanceDate => dateTime().nullable()();
+  TextColumn get target =>
+      textEnum<FeedTarget>().withDefault(const Constant('unmapped'))();
+
+  /// The Account, CreditCard or Loan id, according to [target].
+  IntColumn get targetId => integer().nullable()();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {connectionId, remoteId},
+      ];
+}
+
 class BudgetEntries extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get profileId => integer().references(Profiles, #id)();
@@ -291,6 +337,11 @@ class BudgetEntries extends Table {
   IntColumn get sourceRecurringTransactionLogId => integer()
       .nullable()
       .references(RecurringTransactionLogs, #id, onDelete: KeyAction.cascade)();
+
+  /// Set for entries that came from a bank feed, as the feed account's remote
+  /// id, a colon, then the transaction's id. A sync skips anything it has already imported, so
+  /// running it twice (or over an overlapping window) never duplicates.
+  TextColumn get externalId => text().nullable()();
 }
 
 /// One slice of a split transaction — e.g. a single $150 store run entered
@@ -542,13 +593,15 @@ class RecurringTransactionLogs extends Table {
   ImportBatches,
   RecurringTransactions,
   RecurringTransactionLogs,
+  SimpleFinConnections,
+  SimpleFinFeedAccounts,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 23;
+  int get schemaVersion => 24;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -747,6 +800,11 @@ class AppDatabase extends _$AppDatabase {
             }
             await m.addColumn(paycheckSchedules, paycheckSchedules.accountId);
             await m.addColumn(paychecks, paychecks.accountId);
+          }
+          if (from < 24) {
+            await m.createTable(simpleFinConnections);
+            await m.createTable(simpleFinFeedAccounts);
+            await m.addColumn(budgetEntries, budgetEntries.externalId);
           }
         },
         beforeOpen: (details) async {

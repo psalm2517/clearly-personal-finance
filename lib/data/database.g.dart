@@ -6599,6 +6599,17 @@ class $BudgetEntriesTable extends BudgetEntries
           'REFERENCES recurring_transaction_logs (id) ON DELETE CASCADE',
         ),
       );
+  static const VerificationMeta _externalIdMeta = const VerificationMeta(
+    'externalId',
+  );
+  @override
+  late final GeneratedColumn<String> externalId = GeneratedColumn<String>(
+    'external_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -6615,6 +6626,7 @@ class $BudgetEntriesTable extends BudgetEntries
     sourceBillPaymentId,
     importBatchId,
     sourceRecurringTransactionLogId,
+    externalId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6727,6 +6739,12 @@ class $BudgetEntriesTable extends BudgetEntries
         ),
       );
     }
+    if (data.containsKey('external_id')) {
+      context.handle(
+        _externalIdMeta,
+        externalId.isAcceptableOrUnknown(data['external_id']!, _externalIdMeta),
+      );
+    }
     return context;
   }
 
@@ -6794,6 +6812,10 @@ class $BudgetEntriesTable extends BudgetEntries
         DriftSqlType.int,
         data['${effectivePrefix}source_recurring_transaction_log_id'],
       ),
+      externalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}external_id'],
+      ),
     );
   }
 
@@ -6843,6 +6865,11 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
   /// Set when this entry was generated automatically because a general
   /// recurring transaction came due — see [RecurringTransactionLogs].
   final int? sourceRecurringTransactionLogId;
+
+  /// Set for entries that came from a bank feed: "<feed account id>:<its
+  /// transaction id>". A sync skips anything it has already imported, so
+  /// running it twice (or over an overlapping window) never duplicates.
+  final String? externalId;
   const BudgetEntry({
     required this.id,
     required this.profileId,
@@ -6858,6 +6885,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
     this.sourceBillPaymentId,
     this.importBatchId,
     this.sourceRecurringTransactionLogId,
+    this.externalId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6898,6 +6926,9 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
         sourceRecurringTransactionLogId,
       );
     }
+    if (!nullToAbsent || externalId != null) {
+      map['external_id'] = Variable<String>(externalId);
+    }
     return map;
   }
 
@@ -6934,6 +6965,9 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
           sourceRecurringTransactionLogId == null && nullToAbsent
           ? const Value.absent()
           : Value(sourceRecurringTransactionLogId),
+      externalId: externalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(externalId),
     );
   }
 
@@ -6963,6 +6997,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
       sourceRecurringTransactionLogId: serializer.fromJson<int?>(
         json['sourceRecurringTransactionLogId'],
       ),
+      externalId: serializer.fromJson<String?>(json['externalId']),
     );
   }
   @override
@@ -6987,6 +7022,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
       'sourceRecurringTransactionLogId': serializer.toJson<int?>(
         sourceRecurringTransactionLogId,
       ),
+      'externalId': serializer.toJson<String?>(externalId),
     };
   }
 
@@ -7005,6 +7041,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
     Value<int?> sourceBillPaymentId = const Value.absent(),
     Value<int?> importBatchId = const Value.absent(),
     Value<int?> sourceRecurringTransactionLogId = const Value.absent(),
+    Value<String?> externalId = const Value.absent(),
   }) => BudgetEntry(
     id: id ?? this.id,
     profileId: profileId ?? this.profileId,
@@ -7028,6 +7065,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
     sourceRecurringTransactionLogId: sourceRecurringTransactionLogId.present
         ? sourceRecurringTransactionLogId.value
         : this.sourceRecurringTransactionLogId,
+    externalId: externalId.present ? externalId.value : this.externalId,
   );
   BudgetEntry copyWithCompanion(BudgetEntriesCompanion data) {
     return BudgetEntry(
@@ -7058,6 +7096,9 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
           data.sourceRecurringTransactionLogId.present
           ? data.sourceRecurringTransactionLogId.value
           : this.sourceRecurringTransactionLogId,
+      externalId: data.externalId.present
+          ? data.externalId.value
+          : this.externalId,
     );
   }
 
@@ -7078,8 +7119,9 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
           ..write('sourceBillPaymentId: $sourceBillPaymentId, ')
           ..write('importBatchId: $importBatchId, ')
           ..write(
-            'sourceRecurringTransactionLogId: $sourceRecurringTransactionLogId',
+            'sourceRecurringTransactionLogId: $sourceRecurringTransactionLogId, ',
           )
+          ..write('externalId: $externalId')
           ..write(')'))
         .toString();
   }
@@ -7100,6 +7142,7 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
     sourceBillPaymentId,
     importBatchId,
     sourceRecurringTransactionLogId,
+    externalId,
   );
   @override
   bool operator ==(Object other) =>
@@ -7119,7 +7162,8 @@ class BudgetEntry extends DataClass implements Insertable<BudgetEntry> {
           other.sourceBillPaymentId == this.sourceBillPaymentId &&
           other.importBatchId == this.importBatchId &&
           other.sourceRecurringTransactionLogId ==
-              this.sourceRecurringTransactionLogId);
+              this.sourceRecurringTransactionLogId &&
+          other.externalId == this.externalId);
 }
 
 class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
@@ -7137,6 +7181,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
   final Value<int?> sourceBillPaymentId;
   final Value<int?> importBatchId;
   final Value<int?> sourceRecurringTransactionLogId;
+  final Value<String?> externalId;
   const BudgetEntriesCompanion({
     this.id = const Value.absent(),
     this.profileId = const Value.absent(),
@@ -7152,6 +7197,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
     this.sourceBillPaymentId = const Value.absent(),
     this.importBatchId = const Value.absent(),
     this.sourceRecurringTransactionLogId = const Value.absent(),
+    this.externalId = const Value.absent(),
   });
   BudgetEntriesCompanion.insert({
     this.id = const Value.absent(),
@@ -7168,6 +7214,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
     this.sourceBillPaymentId = const Value.absent(),
     this.importBatchId = const Value.absent(),
     this.sourceRecurringTransactionLogId = const Value.absent(),
+    this.externalId = const Value.absent(),
   }) : profileId = Value(profileId),
        date = Value(date),
        amountCents = Value(amountCents),
@@ -7187,6 +7234,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
     Expression<int>? sourceBillPaymentId,
     Expression<int>? importBatchId,
     Expression<int>? sourceRecurringTransactionLogId,
+    Expression<String>? externalId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -7205,6 +7253,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
       if (importBatchId != null) 'import_batch_id': importBatchId,
       if (sourceRecurringTransactionLogId != null)
         'source_recurring_transaction_log_id': sourceRecurringTransactionLogId,
+      if (externalId != null) 'external_id': externalId,
     });
   }
 
@@ -7223,6 +7272,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
     Value<int?>? sourceBillPaymentId,
     Value<int?>? importBatchId,
     Value<int?>? sourceRecurringTransactionLogId,
+    Value<String?>? externalId,
   }) {
     return BudgetEntriesCompanion(
       id: id ?? this.id,
@@ -7241,6 +7291,7 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
       sourceRecurringTransactionLogId:
           sourceRecurringTransactionLogId ??
           this.sourceRecurringTransactionLogId,
+      externalId: externalId ?? this.externalId,
     );
   }
 
@@ -7293,6 +7344,9 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
         sourceRecurringTransactionLogId.value,
       );
     }
+    if (externalId.present) {
+      map['external_id'] = Variable<String>(externalId.value);
+    }
     return map;
   }
 
@@ -7313,8 +7367,9 @@ class BudgetEntriesCompanion extends UpdateCompanion<BudgetEntry> {
           ..write('sourceBillPaymentId: $sourceBillPaymentId, ')
           ..write('importBatchId: $importBatchId, ')
           ..write(
-            'sourceRecurringTransactionLogId: $sourceRecurringTransactionLogId',
+            'sourceRecurringTransactionLogId: $sourceRecurringTransactionLogId, ',
           )
+          ..write('externalId: $externalId')
           ..write(')'))
         .toString();
   }
@@ -12222,6 +12277,1061 @@ class TransactionSplitsCompanion extends UpdateCompanion<TransactionSplit> {
   }
 }
 
+class $SimpleFinConnectionsTable extends SimpleFinConnections
+    with TableInfo<$SimpleFinConnectionsTable, SimpleFinConnection> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SimpleFinConnectionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<int> profileId = GeneratedColumn<int>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES profiles (id)',
+    ),
+  );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<String> label = GeneratedColumn<String>(
+    'label',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('SimpleFIN'),
+  );
+  static const VerificationMeta _accessUrlMeta = const VerificationMeta(
+    'accessUrl',
+  );
+  @override
+  late final GeneratedColumn<String> accessUrl = GeneratedColumn<String>(
+    'access_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastSyncAtMeta = const VerificationMeta(
+    'lastSyncAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastSyncAt = GeneratedColumn<DateTime>(
+    'last_sync_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastSyncMessageMeta = const VerificationMeta(
+    'lastSyncMessage',
+  );
+  @override
+  late final GeneratedColumn<String> lastSyncMessage = GeneratedColumn<String>(
+    'last_sync_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    profileId,
+    label,
+    accessUrl,
+    createdAt,
+    lastSyncAt,
+    lastSyncMessage,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'simple_fin_connections';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SimpleFinConnection> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_profileIdMeta);
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
+      );
+    }
+    if (data.containsKey('access_url')) {
+      context.handle(
+        _accessUrlMeta,
+        accessUrl.isAcceptableOrUnknown(data['access_url']!, _accessUrlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_accessUrlMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('last_sync_at')) {
+      context.handle(
+        _lastSyncAtMeta,
+        lastSyncAt.isAcceptableOrUnknown(
+          data['last_sync_at']!,
+          _lastSyncAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_sync_message')) {
+      context.handle(
+        _lastSyncMessageMeta,
+        lastSyncMessage.isAcceptableOrUnknown(
+          data['last_sync_message']!,
+          _lastSyncMessageMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SimpleFinConnection map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SimpleFinConnection(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}profile_id'],
+      )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}label'],
+      )!,
+      accessUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}access_url'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      lastSyncAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_sync_at'],
+      ),
+      lastSyncMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_sync_message'],
+      ),
+    );
+  }
+
+  @override
+  $SimpleFinConnectionsTable createAlias(String alias) {
+    return $SimpleFinConnectionsTable(attachedDatabase, alias);
+  }
+}
+
+class SimpleFinConnection extends DataClass
+    implements Insertable<SimpleFinConnection> {
+  final int id;
+  final int profileId;
+  final String label;
+  final String accessUrl;
+  final DateTime createdAt;
+
+  /// When the last sync finished, and what it said ("12 new", or the
+  /// reason it failed), so the screen can show it without re-running.
+  final DateTime? lastSyncAt;
+  final String? lastSyncMessage;
+  const SimpleFinConnection({
+    required this.id,
+    required this.profileId,
+    required this.label,
+    required this.accessUrl,
+    required this.createdAt,
+    this.lastSyncAt,
+    this.lastSyncMessage,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['profile_id'] = Variable<int>(profileId);
+    map['label'] = Variable<String>(label);
+    map['access_url'] = Variable<String>(accessUrl);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || lastSyncAt != null) {
+      map['last_sync_at'] = Variable<DateTime>(lastSyncAt);
+    }
+    if (!nullToAbsent || lastSyncMessage != null) {
+      map['last_sync_message'] = Variable<String>(lastSyncMessage);
+    }
+    return map;
+  }
+
+  SimpleFinConnectionsCompanion toCompanion(bool nullToAbsent) {
+    return SimpleFinConnectionsCompanion(
+      id: Value(id),
+      profileId: Value(profileId),
+      label: Value(label),
+      accessUrl: Value(accessUrl),
+      createdAt: Value(createdAt),
+      lastSyncAt: lastSyncAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSyncAt),
+      lastSyncMessage: lastSyncMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSyncMessage),
+    );
+  }
+
+  factory SimpleFinConnection.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SimpleFinConnection(
+      id: serializer.fromJson<int>(json['id']),
+      profileId: serializer.fromJson<int>(json['profileId']),
+      label: serializer.fromJson<String>(json['label']),
+      accessUrl: serializer.fromJson<String>(json['accessUrl']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      lastSyncAt: serializer.fromJson<DateTime?>(json['lastSyncAt']),
+      lastSyncMessage: serializer.fromJson<String?>(json['lastSyncMessage']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'profileId': serializer.toJson<int>(profileId),
+      'label': serializer.toJson<String>(label),
+      'accessUrl': serializer.toJson<String>(accessUrl),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'lastSyncAt': serializer.toJson<DateTime?>(lastSyncAt),
+      'lastSyncMessage': serializer.toJson<String?>(lastSyncMessage),
+    };
+  }
+
+  SimpleFinConnection copyWith({
+    int? id,
+    int? profileId,
+    String? label,
+    String? accessUrl,
+    DateTime? createdAt,
+    Value<DateTime?> lastSyncAt = const Value.absent(),
+    Value<String?> lastSyncMessage = const Value.absent(),
+  }) => SimpleFinConnection(
+    id: id ?? this.id,
+    profileId: profileId ?? this.profileId,
+    label: label ?? this.label,
+    accessUrl: accessUrl ?? this.accessUrl,
+    createdAt: createdAt ?? this.createdAt,
+    lastSyncAt: lastSyncAt.present ? lastSyncAt.value : this.lastSyncAt,
+    lastSyncMessage: lastSyncMessage.present
+        ? lastSyncMessage.value
+        : this.lastSyncMessage,
+  );
+  SimpleFinConnection copyWithCompanion(SimpleFinConnectionsCompanion data) {
+    return SimpleFinConnection(
+      id: data.id.present ? data.id.value : this.id,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
+      label: data.label.present ? data.label.value : this.label,
+      accessUrl: data.accessUrl.present ? data.accessUrl.value : this.accessUrl,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      lastSyncAt: data.lastSyncAt.present
+          ? data.lastSyncAt.value
+          : this.lastSyncAt,
+      lastSyncMessage: data.lastSyncMessage.present
+          ? data.lastSyncMessage.value
+          : this.lastSyncMessage,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinConnection(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('label: $label, ')
+          ..write('accessUrl: $accessUrl, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastSyncAt: $lastSyncAt, ')
+          ..write('lastSyncMessage: $lastSyncMessage')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    profileId,
+    label,
+    accessUrl,
+    createdAt,
+    lastSyncAt,
+    lastSyncMessage,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SimpleFinConnection &&
+          other.id == this.id &&
+          other.profileId == this.profileId &&
+          other.label == this.label &&
+          other.accessUrl == this.accessUrl &&
+          other.createdAt == this.createdAt &&
+          other.lastSyncAt == this.lastSyncAt &&
+          other.lastSyncMessage == this.lastSyncMessage);
+}
+
+class SimpleFinConnectionsCompanion
+    extends UpdateCompanion<SimpleFinConnection> {
+  final Value<int> id;
+  final Value<int> profileId;
+  final Value<String> label;
+  final Value<String> accessUrl;
+  final Value<DateTime> createdAt;
+  final Value<DateTime?> lastSyncAt;
+  final Value<String?> lastSyncMessage;
+  const SimpleFinConnectionsCompanion({
+    this.id = const Value.absent(),
+    this.profileId = const Value.absent(),
+    this.label = const Value.absent(),
+    this.accessUrl = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.lastSyncAt = const Value.absent(),
+    this.lastSyncMessage = const Value.absent(),
+  });
+  SimpleFinConnectionsCompanion.insert({
+    this.id = const Value.absent(),
+    required int profileId,
+    this.label = const Value.absent(),
+    required String accessUrl,
+    required DateTime createdAt,
+    this.lastSyncAt = const Value.absent(),
+    this.lastSyncMessage = const Value.absent(),
+  }) : profileId = Value(profileId),
+       accessUrl = Value(accessUrl),
+       createdAt = Value(createdAt);
+  static Insertable<SimpleFinConnection> custom({
+    Expression<int>? id,
+    Expression<int>? profileId,
+    Expression<String>? label,
+    Expression<String>? accessUrl,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? lastSyncAt,
+    Expression<String>? lastSyncMessage,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (profileId != null) 'profile_id': profileId,
+      if (label != null) 'label': label,
+      if (accessUrl != null) 'access_url': accessUrl,
+      if (createdAt != null) 'created_at': createdAt,
+      if (lastSyncAt != null) 'last_sync_at': lastSyncAt,
+      if (lastSyncMessage != null) 'last_sync_message': lastSyncMessage,
+    });
+  }
+
+  SimpleFinConnectionsCompanion copyWith({
+    Value<int>? id,
+    Value<int>? profileId,
+    Value<String>? label,
+    Value<String>? accessUrl,
+    Value<DateTime>? createdAt,
+    Value<DateTime?>? lastSyncAt,
+    Value<String?>? lastSyncMessage,
+  }) {
+    return SimpleFinConnectionsCompanion(
+      id: id ?? this.id,
+      profileId: profileId ?? this.profileId,
+      label: label ?? this.label,
+      accessUrl: accessUrl ?? this.accessUrl,
+      createdAt: createdAt ?? this.createdAt,
+      lastSyncAt: lastSyncAt ?? this.lastSyncAt,
+      lastSyncMessage: lastSyncMessage ?? this.lastSyncMessage,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<int>(profileId.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<String>(label.value);
+    }
+    if (accessUrl.present) {
+      map['access_url'] = Variable<String>(accessUrl.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (lastSyncAt.present) {
+      map['last_sync_at'] = Variable<DateTime>(lastSyncAt.value);
+    }
+    if (lastSyncMessage.present) {
+      map['last_sync_message'] = Variable<String>(lastSyncMessage.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinConnectionsCompanion(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('label: $label, ')
+          ..write('accessUrl: $accessUrl, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastSyncAt: $lastSyncAt, ')
+          ..write('lastSyncMessage: $lastSyncMessage')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SimpleFinFeedAccountsTable extends SimpleFinFeedAccounts
+    with TableInfo<$SimpleFinFeedAccountsTable, SimpleFinFeedAccount> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SimpleFinFeedAccountsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _connectionIdMeta = const VerificationMeta(
+    'connectionId',
+  );
+  @override
+  late final GeneratedColumn<int> connectionId = GeneratedColumn<int>(
+    'connection_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES simple_fin_connections (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _remoteIdMeta = const VerificationMeta(
+    'remoteId',
+  );
+  @override
+  late final GeneratedColumn<String> remoteId = GeneratedColumn<String>(
+    'remote_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _orgNameMeta = const VerificationMeta(
+    'orgName',
+  );
+  @override
+  late final GeneratedColumn<String> orgName = GeneratedColumn<String>(
+    'org_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _balanceCentsMeta = const VerificationMeta(
+    'balanceCents',
+  );
+  @override
+  late final GeneratedColumn<int> balanceCents = GeneratedColumn<int>(
+    'balance_cents',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _balanceDateMeta = const VerificationMeta(
+    'balanceDate',
+  );
+  @override
+  late final GeneratedColumn<DateTime> balanceDate = GeneratedColumn<DateTime>(
+    'balance_date',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<FeedTarget, String> target =
+      GeneratedColumn<String>(
+        'target',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('unmapped'),
+      ).withConverter<FeedTarget>($SimpleFinFeedAccountsTable.$convertertarget);
+  static const VerificationMeta _targetIdMeta = const VerificationMeta(
+    'targetId',
+  );
+  @override
+  late final GeneratedColumn<int> targetId = GeneratedColumn<int>(
+    'target_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    connectionId,
+    remoteId,
+    name,
+    orgName,
+    balanceCents,
+    balanceDate,
+    target,
+    targetId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'simple_fin_feed_accounts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SimpleFinFeedAccount> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('connection_id')) {
+      context.handle(
+        _connectionIdMeta,
+        connectionId.isAcceptableOrUnknown(
+          data['connection_id']!,
+          _connectionIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_connectionIdMeta);
+    }
+    if (data.containsKey('remote_id')) {
+      context.handle(
+        _remoteIdMeta,
+        remoteId.isAcceptableOrUnknown(data['remote_id']!, _remoteIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_remoteIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('org_name')) {
+      context.handle(
+        _orgNameMeta,
+        orgName.isAcceptableOrUnknown(data['org_name']!, _orgNameMeta),
+      );
+    }
+    if (data.containsKey('balance_cents')) {
+      context.handle(
+        _balanceCentsMeta,
+        balanceCents.isAcceptableOrUnknown(
+          data['balance_cents']!,
+          _balanceCentsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('balance_date')) {
+      context.handle(
+        _balanceDateMeta,
+        balanceDate.isAcceptableOrUnknown(
+          data['balance_date']!,
+          _balanceDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('target_id')) {
+      context.handle(
+        _targetIdMeta,
+        targetId.isAcceptableOrUnknown(data['target_id']!, _targetIdMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {connectionId, remoteId},
+  ];
+  @override
+  SimpleFinFeedAccount map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SimpleFinFeedAccount(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      connectionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}connection_id'],
+      )!,
+      remoteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      orgName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}org_name'],
+      ),
+      balanceCents: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}balance_cents'],
+      )!,
+      balanceDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}balance_date'],
+      ),
+      target: $SimpleFinFeedAccountsTable.$convertertarget.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}target'],
+        )!,
+      ),
+      targetId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_id'],
+      ),
+    );
+  }
+
+  @override
+  $SimpleFinFeedAccountsTable createAlias(String alias) {
+    return $SimpleFinFeedAccountsTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<FeedTarget, String, String> $convertertarget =
+      const EnumNameConverter<FeedTarget>(FeedTarget.values);
+}
+
+class SimpleFinFeedAccount extends DataClass
+    implements Insertable<SimpleFinFeedAccount> {
+  final int id;
+  final int connectionId;
+
+  /// The Bridge's id for the account; transaction ids are unique only
+  /// within it.
+  final String remoteId;
+  final String name;
+  final String? orgName;
+  final int balanceCents;
+  final DateTime? balanceDate;
+  final FeedTarget target;
+
+  /// The Account, CreditCard or Loan id, according to [target].
+  final int? targetId;
+  const SimpleFinFeedAccount({
+    required this.id,
+    required this.connectionId,
+    required this.remoteId,
+    required this.name,
+    this.orgName,
+    required this.balanceCents,
+    this.balanceDate,
+    required this.target,
+    this.targetId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['connection_id'] = Variable<int>(connectionId);
+    map['remote_id'] = Variable<String>(remoteId);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || orgName != null) {
+      map['org_name'] = Variable<String>(orgName);
+    }
+    map['balance_cents'] = Variable<int>(balanceCents);
+    if (!nullToAbsent || balanceDate != null) {
+      map['balance_date'] = Variable<DateTime>(balanceDate);
+    }
+    {
+      map['target'] = Variable<String>(
+        $SimpleFinFeedAccountsTable.$convertertarget.toSql(target),
+      );
+    }
+    if (!nullToAbsent || targetId != null) {
+      map['target_id'] = Variable<int>(targetId);
+    }
+    return map;
+  }
+
+  SimpleFinFeedAccountsCompanion toCompanion(bool nullToAbsent) {
+    return SimpleFinFeedAccountsCompanion(
+      id: Value(id),
+      connectionId: Value(connectionId),
+      remoteId: Value(remoteId),
+      name: Value(name),
+      orgName: orgName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(orgName),
+      balanceCents: Value(balanceCents),
+      balanceDate: balanceDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(balanceDate),
+      target: Value(target),
+      targetId: targetId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(targetId),
+    );
+  }
+
+  factory SimpleFinFeedAccount.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SimpleFinFeedAccount(
+      id: serializer.fromJson<int>(json['id']),
+      connectionId: serializer.fromJson<int>(json['connectionId']),
+      remoteId: serializer.fromJson<String>(json['remoteId']),
+      name: serializer.fromJson<String>(json['name']),
+      orgName: serializer.fromJson<String?>(json['orgName']),
+      balanceCents: serializer.fromJson<int>(json['balanceCents']),
+      balanceDate: serializer.fromJson<DateTime?>(json['balanceDate']),
+      target: $SimpleFinFeedAccountsTable.$convertertarget.fromJson(
+        serializer.fromJson<String>(json['target']),
+      ),
+      targetId: serializer.fromJson<int?>(json['targetId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'connectionId': serializer.toJson<int>(connectionId),
+      'remoteId': serializer.toJson<String>(remoteId),
+      'name': serializer.toJson<String>(name),
+      'orgName': serializer.toJson<String?>(orgName),
+      'balanceCents': serializer.toJson<int>(balanceCents),
+      'balanceDate': serializer.toJson<DateTime?>(balanceDate),
+      'target': serializer.toJson<String>(
+        $SimpleFinFeedAccountsTable.$convertertarget.toJson(target),
+      ),
+      'targetId': serializer.toJson<int?>(targetId),
+    };
+  }
+
+  SimpleFinFeedAccount copyWith({
+    int? id,
+    int? connectionId,
+    String? remoteId,
+    String? name,
+    Value<String?> orgName = const Value.absent(),
+    int? balanceCents,
+    Value<DateTime?> balanceDate = const Value.absent(),
+    FeedTarget? target,
+    Value<int?> targetId = const Value.absent(),
+  }) => SimpleFinFeedAccount(
+    id: id ?? this.id,
+    connectionId: connectionId ?? this.connectionId,
+    remoteId: remoteId ?? this.remoteId,
+    name: name ?? this.name,
+    orgName: orgName.present ? orgName.value : this.orgName,
+    balanceCents: balanceCents ?? this.balanceCents,
+    balanceDate: balanceDate.present ? balanceDate.value : this.balanceDate,
+    target: target ?? this.target,
+    targetId: targetId.present ? targetId.value : this.targetId,
+  );
+  SimpleFinFeedAccount copyWithCompanion(SimpleFinFeedAccountsCompanion data) {
+    return SimpleFinFeedAccount(
+      id: data.id.present ? data.id.value : this.id,
+      connectionId: data.connectionId.present
+          ? data.connectionId.value
+          : this.connectionId,
+      remoteId: data.remoteId.present ? data.remoteId.value : this.remoteId,
+      name: data.name.present ? data.name.value : this.name,
+      orgName: data.orgName.present ? data.orgName.value : this.orgName,
+      balanceCents: data.balanceCents.present
+          ? data.balanceCents.value
+          : this.balanceCents,
+      balanceDate: data.balanceDate.present
+          ? data.balanceDate.value
+          : this.balanceDate,
+      target: data.target.present ? data.target.value : this.target,
+      targetId: data.targetId.present ? data.targetId.value : this.targetId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinFeedAccount(')
+          ..write('id: $id, ')
+          ..write('connectionId: $connectionId, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('name: $name, ')
+          ..write('orgName: $orgName, ')
+          ..write('balanceCents: $balanceCents, ')
+          ..write('balanceDate: $balanceDate, ')
+          ..write('target: $target, ')
+          ..write('targetId: $targetId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    connectionId,
+    remoteId,
+    name,
+    orgName,
+    balanceCents,
+    balanceDate,
+    target,
+    targetId,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SimpleFinFeedAccount &&
+          other.id == this.id &&
+          other.connectionId == this.connectionId &&
+          other.remoteId == this.remoteId &&
+          other.name == this.name &&
+          other.orgName == this.orgName &&
+          other.balanceCents == this.balanceCents &&
+          other.balanceDate == this.balanceDate &&
+          other.target == this.target &&
+          other.targetId == this.targetId);
+}
+
+class SimpleFinFeedAccountsCompanion
+    extends UpdateCompanion<SimpleFinFeedAccount> {
+  final Value<int> id;
+  final Value<int> connectionId;
+  final Value<String> remoteId;
+  final Value<String> name;
+  final Value<String?> orgName;
+  final Value<int> balanceCents;
+  final Value<DateTime?> balanceDate;
+  final Value<FeedTarget> target;
+  final Value<int?> targetId;
+  const SimpleFinFeedAccountsCompanion({
+    this.id = const Value.absent(),
+    this.connectionId = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.orgName = const Value.absent(),
+    this.balanceCents = const Value.absent(),
+    this.balanceDate = const Value.absent(),
+    this.target = const Value.absent(),
+    this.targetId = const Value.absent(),
+  });
+  SimpleFinFeedAccountsCompanion.insert({
+    this.id = const Value.absent(),
+    required int connectionId,
+    required String remoteId,
+    required String name,
+    this.orgName = const Value.absent(),
+    this.balanceCents = const Value.absent(),
+    this.balanceDate = const Value.absent(),
+    this.target = const Value.absent(),
+    this.targetId = const Value.absent(),
+  }) : connectionId = Value(connectionId),
+       remoteId = Value(remoteId),
+       name = Value(name);
+  static Insertable<SimpleFinFeedAccount> custom({
+    Expression<int>? id,
+    Expression<int>? connectionId,
+    Expression<String>? remoteId,
+    Expression<String>? name,
+    Expression<String>? orgName,
+    Expression<int>? balanceCents,
+    Expression<DateTime>? balanceDate,
+    Expression<String>? target,
+    Expression<int>? targetId,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (connectionId != null) 'connection_id': connectionId,
+      if (remoteId != null) 'remote_id': remoteId,
+      if (name != null) 'name': name,
+      if (orgName != null) 'org_name': orgName,
+      if (balanceCents != null) 'balance_cents': balanceCents,
+      if (balanceDate != null) 'balance_date': balanceDate,
+      if (target != null) 'target': target,
+      if (targetId != null) 'target_id': targetId,
+    });
+  }
+
+  SimpleFinFeedAccountsCompanion copyWith({
+    Value<int>? id,
+    Value<int>? connectionId,
+    Value<String>? remoteId,
+    Value<String>? name,
+    Value<String?>? orgName,
+    Value<int>? balanceCents,
+    Value<DateTime?>? balanceDate,
+    Value<FeedTarget>? target,
+    Value<int?>? targetId,
+  }) {
+    return SimpleFinFeedAccountsCompanion(
+      id: id ?? this.id,
+      connectionId: connectionId ?? this.connectionId,
+      remoteId: remoteId ?? this.remoteId,
+      name: name ?? this.name,
+      orgName: orgName ?? this.orgName,
+      balanceCents: balanceCents ?? this.balanceCents,
+      balanceDate: balanceDate ?? this.balanceDate,
+      target: target ?? this.target,
+      targetId: targetId ?? this.targetId,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (connectionId.present) {
+      map['connection_id'] = Variable<int>(connectionId.value);
+    }
+    if (remoteId.present) {
+      map['remote_id'] = Variable<String>(remoteId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (orgName.present) {
+      map['org_name'] = Variable<String>(orgName.value);
+    }
+    if (balanceCents.present) {
+      map['balance_cents'] = Variable<int>(balanceCents.value);
+    }
+    if (balanceDate.present) {
+      map['balance_date'] = Variable<DateTime>(balanceDate.value);
+    }
+    if (target.present) {
+      map['target'] = Variable<String>(
+        $SimpleFinFeedAccountsTable.$convertertarget.toSql(target.value),
+      );
+    }
+    if (targetId.present) {
+      map['target_id'] = Variable<int>(targetId.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SimpleFinFeedAccountsCompanion(')
+          ..write('id: $id, ')
+          ..write('connectionId: $connectionId, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('name: $name, ')
+          ..write('orgName: $orgName, ')
+          ..write('balanceCents: $balanceCents, ')
+          ..write('balanceDate: $balanceDate, ')
+          ..write('target: $target, ')
+          ..write('targetId: $targetId')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -12261,6 +13371,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $TransferLogsTable transferLogs = $TransferLogsTable(this);
   late final $TransactionSplitsTable transactionSplits =
       $TransactionSplitsTable(this);
+  late final $SimpleFinConnectionsTable simpleFinConnections =
+      $SimpleFinConnectionsTable(this);
+  late final $SimpleFinFeedAccountsTable simpleFinFeedAccounts =
+      $SimpleFinFeedAccountsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -12291,6 +13405,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     recurringTransfers,
     transferLogs,
     transactionSplits,
+    simpleFinConnections,
+    simpleFinFeedAccounts,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -12395,6 +13511,15 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('transaction_splits', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'simple_fin_connections',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('simple_fin_feed_accounts', kind: UpdateKind.delete),
+      ],
     ),
   ]);
 }
@@ -12876,6 +14001,31 @@ final class $$ProfilesTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _transactionSplitsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $SimpleFinConnectionsTable,
+    List<SimpleFinConnection>
+  >
+  _simpleFinConnectionsRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.simpleFinConnections,
+        aliasName: 'profiles__id__simple_fin_connections__profile_id',
+      );
+
+  $$SimpleFinConnectionsTableProcessedTableManager
+  get simpleFinConnectionsRefs {
+    final manager = $$SimpleFinConnectionsTableTableManager(
+      $_db,
+      $_db.simpleFinConnections,
+    ).filter((f) => f.profileId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _simpleFinConnectionsRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -13482,6 +14632,31 @@ class $$ProfilesTableFilterComposer
           }) => $$TransactionSplitsTableFilterComposer(
             $db: $db,
             $table: $db.transactionSplits,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> simpleFinConnectionsRefs(
+    Expression<bool> Function($$SimpleFinConnectionsTableFilterComposer f) f,
+  ) {
+    final $$SimpleFinConnectionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.simpleFinConnections,
+      getReferencedColumn: (t) => t.profileId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SimpleFinConnectionsTableFilterComposer(
+            $db: $db,
+            $table: $db.simpleFinConnections,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -14128,6 +15303,32 @@ class $$ProfilesTableAnnotationComposer
         );
     return f(composer);
   }
+
+  Expression<T> simpleFinConnectionsRefs<T extends Object>(
+    Expression<T> Function($$SimpleFinConnectionsTableAnnotationComposer a) f,
+  ) {
+    final $$SimpleFinConnectionsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.simpleFinConnections,
+          getReferencedColumn: (t) => t.profileId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SimpleFinConnectionsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.simpleFinConnections,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$ProfilesTableTableManager
@@ -14167,6 +15368,7 @@ class $$ProfilesTableTableManager
             bool recurringTransfersRefs,
             bool transferLogsRefs,
             bool transactionSplitsRefs,
+            bool simpleFinConnectionsRefs,
           })
         > {
   $$ProfilesTableTableManager(_$AppDatabase db, $ProfilesTable table)
@@ -14237,6 +15439,7 @@ class $$ProfilesTableTableManager
                 recurringTransfersRefs = false,
                 transferLogsRefs = false,
                 transactionSplitsRefs = false,
+                simpleFinConnectionsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -14265,6 +15468,7 @@ class $$ProfilesTableTableManager
                     if (recurringTransfersRefs) db.recurringTransfers,
                     if (transferLogsRefs) db.transferLogs,
                     if (transactionSplitsRefs) db.transactionSplits,
+                    if (simpleFinConnectionsRefs) db.simpleFinConnections,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -14744,6 +15948,27 @@ class $$ProfilesTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (simpleFinConnectionsRefs)
+                        await $_getPrefetchedData<
+                          Profile,
+                          $ProfilesTable,
+                          SimpleFinConnection
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProfilesTableReferences
+                              ._simpleFinConnectionsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProfilesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).simpleFinConnectionsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.profileId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -14788,6 +16013,7 @@ typedef $$ProfilesTableProcessedTableManager =
         bool recurringTransfersRefs,
         bool transferLogsRefs,
         bool transactionSplitsRefs,
+        bool simpleFinConnectionsRefs,
       })
     >;
 typedef $$AccountsTableCreateCompanionBuilder = AccountsCompanion Function({
@@ -21688,6 +22914,7 @@ typedef $$BudgetEntriesTableCreateCompanionBuilder =
       Value<int?> sourceBillPaymentId,
       Value<int?> importBatchId,
       Value<int?> sourceRecurringTransactionLogId,
+      Value<String?> externalId,
     });
 typedef $$BudgetEntriesTableUpdateCompanionBuilder =
     BudgetEntriesCompanion Function({
@@ -21705,6 +22932,7 @@ typedef $$BudgetEntriesTableUpdateCompanionBuilder =
       Value<int?> sourceBillPaymentId,
       Value<int?> importBatchId,
       Value<int?> sourceRecurringTransactionLogId,
+      Value<String?> externalId,
     });
 
 final class $$BudgetEntriesTableReferences
@@ -21927,6 +23155,11 @@ class $$BudgetEntriesTableFilterComposer
 
   ColumnFilters<String> get payee => $composableBuilder(
     column: $table.payee,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get externalId => $composableBuilder(
+    column: $table.externalId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -22188,6 +23421,11 @@ class $$BudgetEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get externalId => $composableBuilder(
+    column: $table.externalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$ProfilesTableOrderingComposer get profileId {
     final $$ProfilesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -22385,6 +23623,11 @@ class $$BudgetEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get payee =>
       $composableBuilder(column: $table.payee, builder: (column) => column);
+
+  GeneratedColumn<String> get externalId => $composableBuilder(
+    column: $table.externalId,
+    builder: (column) => column,
+  );
 
   $$ProfilesTableAnnotationComposer get profileId {
     final $$ProfilesTableAnnotationComposer composer = $composerBuilder(
@@ -22654,6 +23897,7 @@ class $$BudgetEntriesTableTableManager
                 Value<int?> importBatchId = const Value.absent(),
                 Value<int?> sourceRecurringTransactionLogId =
                     const Value.absent(),
+                Value<String?> externalId = const Value.absent(),
               }) => BudgetEntriesCompanion(
                 id: id,
                 profileId: profileId,
@@ -22670,6 +23914,7 @@ class $$BudgetEntriesTableTableManager
                 importBatchId: importBatchId,
                 sourceRecurringTransactionLogId:
                     sourceRecurringTransactionLogId,
+                externalId: externalId,
               ),
           createCompanionCallback:
               ({
@@ -22688,6 +23933,7 @@ class $$BudgetEntriesTableTableManager
                 Value<int?> importBatchId = const Value.absent(),
                 Value<int?> sourceRecurringTransactionLogId =
                     const Value.absent(),
+                Value<String?> externalId = const Value.absent(),
               }) => BudgetEntriesCompanion.insert(
                 id: id,
                 profileId: profileId,
@@ -22704,6 +23950,7 @@ class $$BudgetEntriesTableTableManager
                 importBatchId: importBatchId,
                 sourceRecurringTransactionLogId:
                     sourceRecurringTransactionLogId,
+                externalId: externalId,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -27951,6 +29198,897 @@ typedef $$TransactionSplitsTableProcessedTableManager =
       TransactionSplit,
       PrefetchHooks Function({bool profileId, bool entryId})
     >;
+typedef $$SimpleFinConnectionsTableCreateCompanionBuilder =
+    SimpleFinConnectionsCompanion Function({
+      Value<int> id,
+      required int profileId,
+      Value<String> label,
+      required String accessUrl,
+      required DateTime createdAt,
+      Value<DateTime?> lastSyncAt,
+      Value<String?> lastSyncMessage,
+    });
+typedef $$SimpleFinConnectionsTableUpdateCompanionBuilder =
+    SimpleFinConnectionsCompanion Function({
+      Value<int> id,
+      Value<int> profileId,
+      Value<String> label,
+      Value<String> accessUrl,
+      Value<DateTime> createdAt,
+      Value<DateTime?> lastSyncAt,
+      Value<String?> lastSyncMessage,
+    });
+
+final class $$SimpleFinConnectionsTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $SimpleFinConnectionsTable,
+          SimpleFinConnection
+        > {
+  $$SimpleFinConnectionsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $ProfilesTable _profileIdTable(_$AppDatabase db) => db.profiles
+      .createAlias('simple_fin_connections__profile_id__profiles__id');
+
+  $$ProfilesTableProcessedTableManager get profileId {
+    final $_column = $_itemColumn<int>('profile_id')!;
+
+    final manager = $$ProfilesTableTableManager(
+      $_db,
+      $_db.profiles,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_profileIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $SimpleFinFeedAccountsTable,
+    List<SimpleFinFeedAccount>
+  >
+  _simpleFinFeedAccountsRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.simpleFinFeedAccounts,
+    aliasName:
+        'simple_fin_connections__id__simple_fin_feed_accounts__connection_id',
+  );
+
+  $$SimpleFinFeedAccountsTableProcessedTableManager
+  get simpleFinFeedAccountsRefs {
+    final manager = $$SimpleFinFeedAccountsTableTableManager(
+      $_db,
+      $_db.simpleFinFeedAccounts,
+    ).filter((f) => f.connectionId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _simpleFinFeedAccountsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$SimpleFinConnectionsTableFilterComposer
+    extends Composer<_$AppDatabase, $SimpleFinConnectionsTable> {
+  $$SimpleFinConnectionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get accessUrl => $composableBuilder(
+    column: $table.accessUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastSyncAt => $composableBuilder(
+    column: $table.lastSyncAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastSyncMessage => $composableBuilder(
+    column: $table.lastSyncMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ProfilesTableFilterComposer get profileId {
+    final $$ProfilesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableFilterComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> simpleFinFeedAccountsRefs(
+    Expression<bool> Function($$SimpleFinFeedAccountsTableFilterComposer f) f,
+  ) {
+    final $$SimpleFinFeedAccountsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.simpleFinFeedAccounts,
+          getReferencedColumn: (t) => t.connectionId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SimpleFinFeedAccountsTableFilterComposer(
+                $db: $db,
+                $table: $db.simpleFinFeedAccounts,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$SimpleFinConnectionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SimpleFinConnectionsTable> {
+  $$SimpleFinConnectionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get accessUrl => $composableBuilder(
+    column: $table.accessUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastSyncAt => $composableBuilder(
+    column: $table.lastSyncAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastSyncMessage => $composableBuilder(
+    column: $table.lastSyncMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ProfilesTableOrderingComposer get profileId {
+    final $$ProfilesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableOrderingComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SimpleFinConnectionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SimpleFinConnectionsTable> {
+  $$SimpleFinConnectionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
+  GeneratedColumn<String> get accessUrl =>
+      $composableBuilder(column: $table.accessUrl, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastSyncAt => $composableBuilder(
+    column: $table.lastSyncAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastSyncMessage => $composableBuilder(
+    column: $table.lastSyncMessage,
+    builder: (column) => column,
+  );
+
+  $$ProfilesTableAnnotationComposer get profileId {
+    final $$ProfilesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.profileId,
+      referencedTable: $db.profiles,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProfilesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.profiles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> simpleFinFeedAccountsRefs<T extends Object>(
+    Expression<T> Function($$SimpleFinFeedAccountsTableAnnotationComposer a) f,
+  ) {
+    final $$SimpleFinFeedAccountsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.simpleFinFeedAccounts,
+          getReferencedColumn: (t) => t.connectionId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SimpleFinFeedAccountsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.simpleFinFeedAccounts,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$SimpleFinConnectionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SimpleFinConnectionsTable,
+          SimpleFinConnection,
+          $$SimpleFinConnectionsTableFilterComposer,
+          $$SimpleFinConnectionsTableOrderingComposer,
+          $$SimpleFinConnectionsTableAnnotationComposer,
+          $$SimpleFinConnectionsTableCreateCompanionBuilder,
+          $$SimpleFinConnectionsTableUpdateCompanionBuilder,
+          (SimpleFinConnection, $$SimpleFinConnectionsTableReferences),
+          SimpleFinConnection,
+          PrefetchHooks Function({
+            bool profileId,
+            bool simpleFinFeedAccountsRefs,
+          })
+        > {
+  $$SimpleFinConnectionsTableTableManager(
+    _$AppDatabase db,
+    $SimpleFinConnectionsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SimpleFinConnectionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SimpleFinConnectionsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SimpleFinConnectionsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> profileId = const Value.absent(),
+                Value<String> label = const Value.absent(),
+                Value<String> accessUrl = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime?> lastSyncAt = const Value.absent(),
+                Value<String?> lastSyncMessage = const Value.absent(),
+              }) => SimpleFinConnectionsCompanion(
+                id: id,
+                profileId: profileId,
+                label: label,
+                accessUrl: accessUrl,
+                createdAt: createdAt,
+                lastSyncAt: lastSyncAt,
+                lastSyncMessage: lastSyncMessage,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int profileId,
+                Value<String> label = const Value.absent(),
+                required String accessUrl,
+                required DateTime createdAt,
+                Value<DateTime?> lastSyncAt = const Value.absent(),
+                Value<String?> lastSyncMessage = const Value.absent(),
+              }) => SimpleFinConnectionsCompanion.insert(
+                id: id,
+                profileId: profileId,
+                label: label,
+                accessUrl: accessUrl,
+                createdAt: createdAt,
+                lastSyncAt: lastSyncAt,
+                lastSyncMessage: lastSyncMessage,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$SimpleFinConnectionsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({profileId = false, simpleFinFeedAccountsRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (simpleFinFeedAccountsRefs) db.simpleFinFeedAccounts,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (profileId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.profileId,
+                            referencedTable:
+                                $$SimpleFinConnectionsTableReferences
+                                    ._profileIdTable(db),
+                            referencedColumn:
+                                $$SimpleFinConnectionsTableReferences
+                                    ._profileIdTable(db)
+                                    .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (simpleFinFeedAccountsRefs)
+                        await $_getPrefetchedData<
+                          SimpleFinConnection,
+                          $SimpleFinConnectionsTable,
+                          SimpleFinFeedAccount
+                        >(
+                          currentTable: table,
+                          referencedTable: $$SimpleFinConnectionsTableReferences
+                              ._simpleFinFeedAccountsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$SimpleFinConnectionsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).simpleFinFeedAccountsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.connectionId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$SimpleFinConnectionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SimpleFinConnectionsTable,
+      SimpleFinConnection,
+      $$SimpleFinConnectionsTableFilterComposer,
+      $$SimpleFinConnectionsTableOrderingComposer,
+      $$SimpleFinConnectionsTableAnnotationComposer,
+      $$SimpleFinConnectionsTableCreateCompanionBuilder,
+      $$SimpleFinConnectionsTableUpdateCompanionBuilder,
+      (SimpleFinConnection, $$SimpleFinConnectionsTableReferences),
+      SimpleFinConnection,
+      PrefetchHooks Function({bool profileId, bool simpleFinFeedAccountsRefs})
+    >;
+typedef $$SimpleFinFeedAccountsTableCreateCompanionBuilder =
+    SimpleFinFeedAccountsCompanion Function({
+      Value<int> id,
+      required int connectionId,
+      required String remoteId,
+      required String name,
+      Value<String?> orgName,
+      Value<int> balanceCents,
+      Value<DateTime?> balanceDate,
+      Value<FeedTarget> target,
+      Value<int?> targetId,
+    });
+typedef $$SimpleFinFeedAccountsTableUpdateCompanionBuilder =
+    SimpleFinFeedAccountsCompanion Function({
+      Value<int> id,
+      Value<int> connectionId,
+      Value<String> remoteId,
+      Value<String> name,
+      Value<String?> orgName,
+      Value<int> balanceCents,
+      Value<DateTime?> balanceDate,
+      Value<FeedTarget> target,
+      Value<int?> targetId,
+    });
+
+final class $$SimpleFinFeedAccountsTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $SimpleFinFeedAccountsTable,
+          SimpleFinFeedAccount
+        > {
+  $$SimpleFinFeedAccountsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $SimpleFinConnectionsTable _connectionIdTable(_$AppDatabase db) =>
+      db.simpleFinConnections.createAlias(
+        'simple_fin_feed_accounts__connection_id__simple_fin_connections__id',
+      );
+
+  $$SimpleFinConnectionsTableProcessedTableManager get connectionId {
+    final $_column = $_itemColumn<int>('connection_id')!;
+
+    final manager = $$SimpleFinConnectionsTableTableManager(
+      $_db,
+      $_db.simpleFinConnections,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_connectionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$SimpleFinFeedAccountsTableFilterComposer
+    extends Composer<_$AppDatabase, $SimpleFinFeedAccountsTable> {
+  $$SimpleFinFeedAccountsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get orgName => $composableBuilder(
+    column: $table.orgName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get balanceCents => $composableBuilder(
+    column: $table.balanceCents,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get balanceDate => $composableBuilder(
+    column: $table.balanceDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<FeedTarget, FeedTarget, String> get target =>
+      $composableBuilder(
+        column: $table.target,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnFilters<int> get targetId => $composableBuilder(
+    column: $table.targetId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$SimpleFinConnectionsTableFilterComposer get connectionId {
+    final $$SimpleFinConnectionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.connectionId,
+      referencedTable: $db.simpleFinConnections,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SimpleFinConnectionsTableFilterComposer(
+            $db: $db,
+            $table: $db.simpleFinConnections,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SimpleFinFeedAccountsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SimpleFinFeedAccountsTable> {
+  $$SimpleFinFeedAccountsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get orgName => $composableBuilder(
+    column: $table.orgName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get balanceCents => $composableBuilder(
+    column: $table.balanceCents,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get balanceDate => $composableBuilder(
+    column: $table.balanceDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get target => $composableBuilder(
+    column: $table.target,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetId => $composableBuilder(
+    column: $table.targetId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$SimpleFinConnectionsTableOrderingComposer get connectionId {
+    final $$SimpleFinConnectionsTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.connectionId,
+          referencedTable: $db.simpleFinConnections,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SimpleFinConnectionsTableOrderingComposer(
+                $db: $db,
+                $table: $db.simpleFinConnections,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$SimpleFinFeedAccountsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SimpleFinFeedAccountsTable> {
+  $$SimpleFinFeedAccountsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteId =>
+      $composableBuilder(column: $table.remoteId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get orgName =>
+      $composableBuilder(column: $table.orgName, builder: (column) => column);
+
+  GeneratedColumn<int> get balanceCents => $composableBuilder(
+    column: $table.balanceCents,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get balanceDate => $composableBuilder(
+    column: $table.balanceDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumnWithTypeConverter<FeedTarget, String> get target =>
+      $composableBuilder(column: $table.target, builder: (column) => column);
+
+  GeneratedColumn<int> get targetId =>
+      $composableBuilder(column: $table.targetId, builder: (column) => column);
+
+  $$SimpleFinConnectionsTableAnnotationComposer get connectionId {
+    final $$SimpleFinConnectionsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.connectionId,
+          referencedTable: $db.simpleFinConnections,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SimpleFinConnectionsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.simpleFinConnections,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$SimpleFinFeedAccountsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SimpleFinFeedAccountsTable,
+          SimpleFinFeedAccount,
+          $$SimpleFinFeedAccountsTableFilterComposer,
+          $$SimpleFinFeedAccountsTableOrderingComposer,
+          $$SimpleFinFeedAccountsTableAnnotationComposer,
+          $$SimpleFinFeedAccountsTableCreateCompanionBuilder,
+          $$SimpleFinFeedAccountsTableUpdateCompanionBuilder,
+          (SimpleFinFeedAccount, $$SimpleFinFeedAccountsTableReferences),
+          SimpleFinFeedAccount,
+          PrefetchHooks Function({bool connectionId})
+        > {
+  $$SimpleFinFeedAccountsTableTableManager(
+    _$AppDatabase db,
+    $SimpleFinFeedAccountsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SimpleFinFeedAccountsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$SimpleFinFeedAccountsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SimpleFinFeedAccountsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> connectionId = const Value.absent(),
+                Value<String> remoteId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> orgName = const Value.absent(),
+                Value<int> balanceCents = const Value.absent(),
+                Value<DateTime?> balanceDate = const Value.absent(),
+                Value<FeedTarget> target = const Value.absent(),
+                Value<int?> targetId = const Value.absent(),
+              }) => SimpleFinFeedAccountsCompanion(
+                id: id,
+                connectionId: connectionId,
+                remoteId: remoteId,
+                name: name,
+                orgName: orgName,
+                balanceCents: balanceCents,
+                balanceDate: balanceDate,
+                target: target,
+                targetId: targetId,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int connectionId,
+                required String remoteId,
+                required String name,
+                Value<String?> orgName = const Value.absent(),
+                Value<int> balanceCents = const Value.absent(),
+                Value<DateTime?> balanceDate = const Value.absent(),
+                Value<FeedTarget> target = const Value.absent(),
+                Value<int?> targetId = const Value.absent(),
+              }) => SimpleFinFeedAccountsCompanion.insert(
+                id: id,
+                connectionId: connectionId,
+                remoteId: remoteId,
+                name: name,
+                orgName: orgName,
+                balanceCents: balanceCents,
+                balanceDate: balanceDate,
+                target: target,
+                targetId: targetId,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$SimpleFinFeedAccountsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({connectionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (connectionId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.connectionId,
+                        referencedTable: $$SimpleFinFeedAccountsTableReferences
+                            ._connectionIdTable(db),
+                        referencedColumn: $$SimpleFinFeedAccountsTableReferences
+                            ._connectionIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$SimpleFinFeedAccountsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SimpleFinFeedAccountsTable,
+      SimpleFinFeedAccount,
+      $$SimpleFinFeedAccountsTableFilterComposer,
+      $$SimpleFinFeedAccountsTableOrderingComposer,
+      $$SimpleFinFeedAccountsTableAnnotationComposer,
+      $$SimpleFinFeedAccountsTableCreateCompanionBuilder,
+      $$SimpleFinFeedAccountsTableUpdateCompanionBuilder,
+      (SimpleFinFeedAccount, $$SimpleFinFeedAccountsTableReferences),
+      SimpleFinFeedAccount,
+      PrefetchHooks Function({bool connectionId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -28010,4 +30148,8 @@ class $AppDatabaseManager {
       $$TransferLogsTableTableManager(_db, _db.transferLogs);
   $$TransactionSplitsTableTableManager get transactionSplits =>
       $$TransactionSplitsTableTableManager(_db, _db.transactionSplits);
+  $$SimpleFinConnectionsTableTableManager get simpleFinConnections =>
+      $$SimpleFinConnectionsTableTableManager(_db, _db.simpleFinConnections);
+  $$SimpleFinFeedAccountsTableTableManager get simpleFinFeedAccounts =>
+      $$SimpleFinFeedAccountsTableTableManager(_db, _db.simpleFinFeedAccounts);
 }

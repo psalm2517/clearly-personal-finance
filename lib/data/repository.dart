@@ -5,7 +5,10 @@ import '../util/streams.dart';
 import 'csv_import.dart';
 import 'database.dart';
 import 'reminder.dart';
+import 'simplefin.dart';
 import 'transaction_draft.dart';
+
+part 'simplefin_repository.dart';
 
 /// One kind of activity seen in [HomebaseRepository.watchAccountHistory] and
 /// [HomebaseRepository.watchCardHistory].
@@ -259,6 +262,7 @@ class HomebaseRepository {
 
   Future<int> deleteAccount(
       {required int profileId, required int id}) async {
+    await _clearFeedLinks(FeedTarget.account, id);
     // Budget entries point at this account, so clear the link first — the
     // spending itself still happened and should survive. Without this the
     // delete fails on a foreign key.
@@ -449,6 +453,7 @@ class HomebaseRepository {
   }
 
   Future<int> deleteCard({required int profileId, required int id}) async {
+    await _clearFeedLinks(FeedTarget.card, id);
     // Payments logged against this card would otherwise be orphaned; the
     // accountId is not a foreign key because it spans two tables.
     await (_db.delete(_db.payments)
@@ -495,6 +500,7 @@ class HomebaseRepository {
   }
 
   Future<int> deleteLoan({required int profileId, required int id}) async {
+    await _clearFeedLinks(FeedTarget.loan, id);
     await (_db.delete(_db.payments)
           ..where((p) =>
               p.profileId.equals(profileId) &

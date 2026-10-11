@@ -10,6 +10,7 @@ import '../theme/accent_provider.dart';
 import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
 import '../widgets/common.dart';
+import 'bank_sync.dart';
 import 'duplicates.dart';
 import 'profiles.dart';
 
@@ -157,6 +158,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
         ),
+        kSectionGap,
+        const BankSyncSection(),
         kSectionGap,
         SectionHeader('Backup',
             icon: Icons.save_outlined,

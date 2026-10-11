@@ -9,6 +9,7 @@ import '../theme/catppuccin.dart';
 import '../theme/flavor_provider.dart';
 import '../widgets/add_transaction.dart';
 import 'accounts_hub.dart';
+import 'bank_sync.dart' show simpleFinClientProvider;
 import 'budget.dart';
 import 'cash_flow.dart';
 import 'dashboard.dart';
@@ -51,6 +52,26 @@ class _AppShellState extends ConsumerState<AppShell> {
         profileId: profileId,
         now: now,
       );
+      // Bank sync, at most every 6 hours and only when a connection exists.
+      // The Bridge allows about 24 refreshes a day; failures are kept on the
+      // connection and shown in Settings rather than interrupting startup.
+      try {
+        final connections = await repo
+            .watchSimpleFinConnections(profileId: profileId)
+            .first;
+        final stale = connections.any(
+          (c) =>
+              c.lastSyncAt == null ||
+              DateTime.now().difference(c.lastSyncAt!) >
+                  const Duration(hours: 6),
+        );
+        if (stale) {
+          await repo.syncSimpleFin(
+            profileId: profileId,
+            client: ref.read(simpleFinClientProvider),
+          );
+        }
+      } catch (_) {}
       // A point for today even on a day with no edits.
       await repo.recordNetWorthSnapshot(profileId: profileId);
       await repo.recordAccountSnapshotsForToday(profileId: profileId);

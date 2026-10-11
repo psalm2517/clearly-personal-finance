@@ -922,6 +922,9 @@ void main() {
     raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
     raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
     raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_feed_accounts;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_connections;');
+    raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
     raw.execute('PRAGMA user_version = 21;');
     raw.close();
 
@@ -975,6 +978,9 @@ void main() {
     raw.execute('ALTER TABLE recurring_transfers DROP COLUMN target_category;');
     raw.execute('ALTER TABLE paycheck_schedules DROP COLUMN account_id;');
     raw.execute('ALTER TABLE paychecks DROP COLUMN account_id;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_feed_accounts;');
+    raw.execute('DROP TABLE IF EXISTS simple_fin_connections;');
+    raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
     raw.execute('PRAGMA user_version = 22;');
     raw.close();
 
@@ -986,5 +992,41 @@ void main() {
     expect((await db.select(db.paychecks).getSingle()).accountId, isNull);
     expect((await db.select(db.paycheckSchedules).getSingle()).accountId,
         isNull);
+  });
+
+  test('a v23 database gains the bank feed tables and an entry external id',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('homebase_v23');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final f = File('${dir.path}/homebase.sqlite');
+
+    var db = AppDatabase.forTesting(NativeDatabase(f));
+    final repo = HomebaseRepository(db);
+    final profile = await repo.createProfile(
+        ProfilesCompanion.insert(name: 'Owner', isAdmin: const Value(true)));
+    await repo.addBudgetEntry(BudgetEntriesCompanion.insert(
+        profileId: profile,
+        date: DateTime(2026, 8, 1),
+        amountCents: 500,
+        type: EntryType.expense,
+        description: const Value('Old entry')));
+    await db.close();
+
+    // Put it back the way a v23 database had it.
+    final raw = sqlite3.open(f.path);
+    raw.execute('DROP TABLE simple_fin_feed_accounts;');
+    raw.execute('DROP TABLE simple_fin_connections;');
+    raw.execute('ALTER TABLE budget_entries DROP COLUMN external_id;');
+    raw.execute('PRAGMA user_version = 23;');
+    raw.close();
+
+    db = AppDatabase.forTesting(NativeDatabase(f));
+    addTearDown(db.close);
+
+    final entry = await db.select(db.budgetEntries).getSingle();
+    expect(entry.description, 'Old entry');
+    expect(entry.externalId, isNull);
+    expect(await db.select(db.simpleFinConnections).get(), isEmpty);
+    expect(await db.select(db.simpleFinFeedAccounts).get(), isEmpty);
   });
 }

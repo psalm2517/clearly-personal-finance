@@ -248,6 +248,16 @@ class BackupService {
     final ids = targetIds.join(',');
 
     await _db.transaction(() async {
+      // Bank-feed links point at account/card/loan ids that this restore is
+      // about to replace, so they would silently target the wrong rows.
+      // Connections themselves are not part of a backup (they hold feed
+      // credentials) and stay; the accounts go back to the review list.
+      await _db.customStatement(
+        "UPDATE simple_fin_feed_accounts SET target = 'unmapped', "
+        'target_id = NULL WHERE connection_id IN '
+        '(SELECT id FROM simple_fin_connections WHERE profile_id IN ($ids))',
+      );
+
       // Clear children before parents.
       for (final entry in _tables.reversed) {
         await _db.customStatement(
