@@ -344,7 +344,10 @@ class _SankeyPainter extends CustomPainter {
       );
 
       final pct = baseTotal == 0 ? 0.0 : n.amountCents / baseTotal * 100;
-      final amount = '${fmtCents(n.amountCents)} (${pct.toStringAsFixed(0)}%)';
+      final share = n.amountCents > 0 && pct < 1
+          ? '<1%'
+          : '${pct.toStringAsFixed(0)}%';
+      final amount = '${fmtCents(n.amountCents)} ($share)';
       final compact = rect.height < _minLabelHeight;
       labels[i] = TextPainter(
         text: TextSpan(

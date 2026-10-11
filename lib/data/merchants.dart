@@ -1,114 +1,91 @@
 import 'categories.dart';
 
-/// A category guessed from the wording of a bank statement line, for the
-/// common merchants that show up on everyone's statements. It is the last
-/// resort: the person's own rules come first, then the merchant category
-/// code when the bank provides one. Only plain, widely recognised names are
-/// matched, so a guess is never a stretch. Anything unrecognised stays
-/// "Other" for the person to categorize.
-String? categoryForDescription(String? description) {
-  final text = (description ?? '').toLowerCase();
-  if (text.isEmpty) return null;
-  for (final rule in _rules) {
-    if (rule.$1.hasMatch(text)) return rule.$2;
-  }
-  return null;
-}
-
 /// Trades and cash sweeps inside a brokerage or retirement account. Money
 /// changing form inside the account is not spending or income, so these are
-/// kept out of the budget.
+/// kept out of the budget. This is about accounting, not categories.
 final brokerageActivity = RegExp(
   r'you bought|you sold|purchase into core|redemption from core|'
-  r'reinvestment|sweep|dividend reinvest|exchange in|exchange out',
+  r'reinvestment|sweep|dividend reinvest|exchange in|exchange out|'
+  r'cash contribution',
   caseSensitive: false,
 );
 
-final _rules = <(RegExp, String)>[
-  // Eating out and delivery.
-  (
-    RegExp(
-      r"uber\s*\*?\s*eats|ubereats|doordash|grubhub|postmates|dunkin|"
-      r"domino|chipotle|mcdonald|wingstop|starbucks|taco bell|burger|pizza|"
-      r"wendy|chick-fil|panera|popeyes|kfc|in-n-out|smoothie|cafe\b|"
-      r"coffee|\bsubway\b|dine|restaurant|diner|bakery|deli\b|sushi|"
-      r"klarna\*uber eats",
-    ),
-    Cat.food,
-  ),
-  // Food shopping.
-  (
-    RegExp(
-      r'grocer|food universe|supermarket|whole foods|trader joe|kroger|'
-      r'safeway|aldi|publix|wegmans|costco|instacart|7-eleven|7 eleven',
-    ),
-    Cat.groceries,
-  ),
-  // Fuel.
-  (
-    RegExp(
-      r'\bbp\b|shell oil|exxon|chevron|sunoco|mobil\b|citgo|gulf oil|'
-      r'wawa|speedway|fuel',
-    ),
-    Cat.auto,
-  ),
-  // Getting around.
-  (
-    RegExp(
-      r'uber\s*\*?\s*trip|uber trip|lyft|\bmta\b|nyct|paygo|metrocard|'
-      r'omny|transit|amtrak|parking|\btoll|e-zpass|ezpass',
-    ),
-    Cat.auto,
-  ),
-  // Phone, internet.
-  (
-    RegExp(
-      r't-mobile|metro by|\bvisible\b|verizon|at&t|comcast|xfinity|spectrum|'
-      r'cricket wireless|mint mobile|google fi|hetzner',
-    ),
-    Cat.utilities,
-  ),
-  // Insurance.
-  (
-    RegExp(
-      r'insurance|\bins\b|geico|allstate|state farm|progressive|'
-      r'lemonade|renters|condo ins',
-    ),
-    Cat.financial,
-  ),
-  // Subscriptions and software.
-  (
-    RegExp(
-      r'spotify|netflix|hulu|disney\+|disneyplus|hbo|youtube|'
-      r'apple\.com/bill|icloud|anthropic|openai|chatgpt|claude|openrouter|'
-      r'discord|github|dropbox|adobe|patreon|substack|nitro',
-    ),
-    Cat.subscriptions,
-  ),
-  // Games and entertainment.
-  (
-    RegExp(r'steam|playstation|xbox|nintendo|epic games|twitch|cinema|\bamc\b'),
-    Cat.entertainment,
-  ),
-  // Health and pets.
-  (
-    RegExp(
-      r'pharmacy|cvs|walgreens|rite aid|dental|clinic|medical|petco|'
-      r'petsmart|vet\b',
-    ),
-    Cat.medical,
-  ),
-  // Shopping.
-  (
-    RegExp(
-      r'amazon|amzn|target\b|walmart|best buy|ikea|etsy|ebay|'
-      r'apple store|nike|zara|h&m|david yurman|aplpay store',
-    ),
-    Cat.personal,
-  ),
-  // Money moving to people or between banks.
-  (RegExp(r'zelle|venmo|cash app|paypal'), Cat.transfers),
-  (RegExp(r'transfer|xfer|\bdb-bkrg\b|wefunder'), Cat.transfers),
-  // Payments on cards and loans that were not recognised as one of yours.
-  (RegExp(r'payment|pymt|\bpmt\b'), Cat.financial),
+/// A rule Clearly can offer to add: text to look for and the category it
+/// would send matches to.
+///
+/// Nothing here is applied on its own. Categorizing is the person's own
+/// rules; these are only a starting point they can choose from.
+class SuggestedRule {
+  const SuggestedRule(this.keyword, this.category);
+  final String keyword;
+  final String category;
+}
+
+const suggestedRules = <SuggestedRule>[
+  // Food & Dining
+  SuggestedRule('uber eats', Cat.food),
+  SuggestedRule('doordash', Cat.food),
+  SuggestedRule('grubhub', Cat.food),
+  SuggestedRule('dunkin', Cat.food),
+  SuggestedRule('domino', Cat.food),
+  SuggestedRule('chipotle', Cat.food),
+  SuggestedRule('mcdonald', Cat.food),
+  SuggestedRule('starbucks', Cat.food),
+  SuggestedRule('wingstop', Cat.food),
+  SuggestedRule('subway', Cat.food),
+  // Groceries
+  SuggestedRule('grocery', Cat.groceries),
+  SuggestedRule('whole foods', Cat.groceries),
+  SuggestedRule('trader joe', Cat.groceries),
+  SuggestedRule('kroger', Cat.groceries),
+  SuggestedRule('safeway', Cat.groceries),
+  SuggestedRule('costco', Cat.groceries),
+  SuggestedRule('instacart', Cat.groceries),
+  // Transportation (gas included)
+  SuggestedRule('uber trip', Cat.auto),
+  SuggestedRule('lyft', Cat.auto),
+  SuggestedRule('mta', Cat.auto),
+  SuggestedRule('paygo', Cat.auto),
+  SuggestedRule('shell oil', Cat.auto),
+  SuggestedRule('exxon', Cat.auto),
+  SuggestedRule('chevron', Cat.auto),
+  SuggestedRule('sunoco', Cat.auto),
+  SuggestedRule('e-zpass', Cat.auto),
+  // Utilities & Bills
+  SuggestedRule('t-mobile', Cat.utilities),
+  SuggestedRule('verizon', Cat.utilities),
+  SuggestedRule('comcast', Cat.utilities),
+  SuggestedRule('xfinity', Cat.utilities),
+  SuggestedRule('spectrum', Cat.utilities),
+  // Financial Services
+  SuggestedRule('geico', Cat.financial),
+  SuggestedRule('allstate', Cat.financial),
+  SuggestedRule('state farm', Cat.financial),
+  SuggestedRule('progressive', Cat.financial),
+  // Subscriptions & Software
+  SuggestedRule('spotify', Cat.entertainment),
+  SuggestedRule('netflix', Cat.entertainment),
+  SuggestedRule('hulu', Cat.entertainment),
+  SuggestedRule('youtube', Cat.entertainment),
+  SuggestedRule('apple.com/bill', Cat.subscriptions),
+  SuggestedRule('github', Cat.subscriptions),
+  SuggestedRule('openai', Cat.subscriptions),
+  SuggestedRule('anthropic', Cat.subscriptions),
+  // Entertainment
+  SuggestedRule('steam', Cat.entertainment),
+  SuggestedRule('playstation', Cat.entertainment),
+  SuggestedRule('xbox', Cat.entertainment),
+  SuggestedRule('fanduel', Cat.entertainment),
+  // Medical & Healthcare
+  SuggestedRule('cvs', Cat.medical),
+  SuggestedRule('walgreens', Cat.medical),
+  SuggestedRule('pharmacy', Cat.medical),
+  // Personal
+  SuggestedRule('amazon', Cat.personal),
+  SuggestedRule('target', Cat.personal),
+  SuggestedRule('walmart', Cat.personal),
+  SuggestedRule('best buy', Cat.personal),
+  // Family & Pets
+  SuggestedRule('petco', Cat.family),
+  SuggestedRule('petsmart', Cat.family),
 ];

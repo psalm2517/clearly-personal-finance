@@ -5,6 +5,7 @@ import '../data/database.dart';
 import '../data/repository.dart';
 import '../main.dart';
 import '../util/money.dart';
+import '../widgets/category_rules.dart';
 import '../widgets/common.dart';
 
 const _monthNames = [
@@ -679,102 +680,6 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     );
   }
 
-  Future<void> _manageRules(BuildContext context) async {
-    final repo = ref.read(repositoryProvider);
-    final profileId = ref.read(activeProfileProvider)!.id;
-    final pattern = TextEditingController();
-    final category = TextEditingController();
-    var field = RuleField.description;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) {
-          Future<void> addRule() async {
-            if (pattern.text.trim().isEmpty || category.text.trim().isEmpty) {
-              return;
-            }
-            await repo.upsertRule(CategoryRulesCompanion.insert(
-                profileId: profileId,
-                field: field,
-                pattern: pattern.text.trim(),
-                category: category.text.trim()));
-            pattern.clear();
-            category.clear();
-          }
-
-          return AlertDialog(
-          title: const Text('Auto-categorization rules'),
-          content: SizedBox(
-            width: 480,
-            height: 420,
-            child: Column(children: [
-              Row(children: [
-                DropdownButton<RuleField>(
-                  value: field,
-                  items: const [
-                    DropdownMenuItem(
-                        value: RuleField.description,
-                        child: Text('Description contains')),
-                    DropdownMenuItem(
-                        value: RuleField.amount,
-                        child: Text('Amount equals')),
-                  ],
-                  onChanged: (v) => setState(() => field = v!),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: TextField(
-                        controller: pattern,
-                        textInputAction: TextInputAction.next,
-                        onSubmitted: (_) => addRule(),
-                        decoration:
-                            const InputDecoration(labelText: 'Pattern'))),
-                const SizedBox(width: 8),
-                SizedBox(
-                    width: 110,
-                    child: TextField(
-                        controller: category,
-                        onSubmitted: (_) => addRule(),
-                        decoration:
-                            const InputDecoration(labelText: 'Category'))),
-                IconButton(
-                  tooltip: 'Add rule',
-                  icon: const Icon(Icons.add),
-                  onPressed: addRule,
-                ),
-              ]),
-              const SizedBox(height: 8),
-              Expanded(
-                child: StreamBuilder<List<CategoryRule>>(
-                  stream: repo.watchRules(profileId: profileId),
-                  builder: (context, snap) {
-                    final rules = snap.data ?? [];
-                    return ListView(children: [
-                      for (final r in rules)
-                        ListTile(
-                          title: Text(
-                              '${r.field == RuleField.description ? 'description contains' : 'amount ='} "${r.pattern}"'),
-                          subtitle: Text('→ ${r.category}'),
-                          trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  size: 18),
-                              onPressed: () => repo.deleteRule(
-                                  profileId: profileId, id: r.id)),
-                        ),
-                    ]);
-                  },
-                ),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Done')),
-          ],
-        );
-        },
-      ),
-    );
-  }
+  Future<void> _manageRules(BuildContext context) =>
+      showCategoryRules(context);
 }

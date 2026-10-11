@@ -780,13 +780,15 @@ class HomebaseRepository {
     // Paid from a bank-synced account or card: the bank reports the real
     // charge, so the paid mark is all that is recorded here. An entry as
     // well would count it twice.
-    if (bill.paymentSourceId != null &&
-        await isSimpleFinLinked(
-          bill.paymentSourceType == PaymentSourceType.account
-              ? FeedTarget.account
-              : FeedTarget.card,
-          bill.paymentSourceId!,
-        )) {
+    if (await _bankOwns(
+      profileId: profileId,
+      accountId: bill.paymentSourceType == PaymentSourceType.account
+          ? bill.paymentSourceId
+          : null,
+      cardId: bill.paymentSourceType == PaymentSourceType.card
+          ? bill.paymentSourceId
+          : null,
+    )) {
       return;
     }
     await _db
@@ -1633,6 +1635,67 @@ class HomebaseRepository {
     return changed;
   }
 
+  /// Makes a rule that sends statement lines containing [pattern] to
+  /// [category] (replacing the category of an existing rule for the same
+  /// text), and applies it right away to everything already recorded.
+  /// Entries split across categories are left as they are. Returns how many
+  /// entries moved.
+  Future<int> addCategoryRule({
+    required int profileId,
+    required String pattern,
+    required String category,
+  }) async {
+    final text = pattern.trim();
+    final cat = category.trim();
+    if (text.isEmpty || cat.isEmpty) return 0;
+    final lower = text.toLowerCase();
+    var moved = 0;
+    await _db.transaction(() async {
+      final rules = await (_db.select(_db.categoryRules)
+            ..where((r) =>
+                r.profileId.equals(profileId) &
+                r.field.equalsValue(RuleField.description)))
+          .get();
+      final existing = rules
+          .where((r) => r.pattern.toLowerCase() == lower)
+          .firstOrNull;
+      if (existing == null) {
+        await _db.into(_db.categoryRules).insert(
+              CategoryRulesCompanion.insert(
+                profileId: profileId,
+                field: RuleField.description,
+                pattern: text.length > 128 ? text.substring(0, 128) : text,
+                category: cat,
+              ),
+            );
+      } else if (existing.category != cat) {
+        await (_db.update(_db.categoryRules)
+              ..where((r) => r.id.equals(existing.id)))
+            .write(CategoryRulesCompanion(category: Value(cat)));
+      }
+
+      final splitIds = {
+        for (final x in await (_db.select(_db.transactionSplits)
+              ..where((x) => x.profileId.equals(profileId)))
+            .get())
+          x.entryId,
+      };
+      final entries = await (_db.select(_db.budgetEntries)
+            ..where((e) => e.profileId.equals(profileId)))
+          .get();
+      for (final e in entries) {
+        if (splitIds.contains(e.id) || e.category == cat) continue;
+        final haystack =
+            '${e.description ?? ''} ${e.payee ?? ''}'.toLowerCase();
+        if (!haystack.contains(lower)) continue;
+        await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
+            .write(BudgetEntriesCompanion(category: Value(cat)));
+        moved++;
+      }
+    });
+    return moved;
+  }
+
   // ---- Splits ----
   //
   // A split breaks one entry's total across more than one category — e.g. a
@@ -2333,8 +2396,10 @@ class HomebaseRepository {
   Future<void> _syncPaycheckEntry(Paycheck paycheck) async {
     // Deposited into a bank-synced account: the deposit arrives from the
     // bank as its own entry, so no income entry or balance move is made.
-    if (paycheck.accountId != null &&
-        await isSimpleFinLinked(FeedTarget.account, paycheck.accountId!)) {
+    if (await _bankOwns(
+      profileId: paycheck.profileId,
+      accountId: paycheck.accountId,
+    )) {
       return;
     }
     final existing = await (_db.select(
@@ -3111,14 +3176,11 @@ class HomebaseRepository {
               );
           // On a bank-synced account or card the bank reports the real
           // charge; the occurrence is logged as seen, but not entered twice.
-          final synced =
-              (item.accountId != null &&
-                  await isSimpleFinLinked(
-                    FeedTarget.account,
-                    item.accountId!,
-                  )) ||
-              (item.cardId != null &&
-                  await isSimpleFinLinked(FeedTarget.card, item.cardId!));
+          final synced = await _bankOwns(
+            profileId: profileId,
+            accountId: item.accountId,
+            cardId: item.cardId,
+          );
           if (synced) return;
           await _db
               .into(_db.budgetEntries)
@@ -3163,6 +3225,27 @@ class HomebaseRepository {
   /// payments paid from an account — goes through here, so the sparkline's
   /// snapshot has to be kept up to date in this one place rather than at
   /// each call site.
+  /// Whether the bank feed, not Clearly, records what happens on this
+  /// account or card. Something with no account at all is the bank's too once
+  /// a feed is connected: recurring items rarely name an account, and the
+  /// charge or deposit arrives from the bank anyway, so an entry of their
+  /// own would only be a second copy of it.
+  Future<bool> _bankOwns({
+    required int profileId,
+    int? accountId,
+    int? cardId,
+  }) async {
+    if (accountId != null) {
+      return isSimpleFinLinked(FeedTarget.account, accountId);
+    }
+    if (cardId != null) return isSimpleFinLinked(FeedTarget.card, cardId);
+    final connection = await (_db.select(_db.simpleFinConnections)
+          ..where((c) => c.profileId.equals(profileId))
+          ..limit(1))
+        .getSingleOrNull();
+    return connection != null;
+  }
+
   Future<void> _adjustAccountBalance(int accountId, int deltaCents) async {
     // A bank-synced balance is the bank's number; nothing local moves it.
     if (await isSimpleFinLinked(FeedTarget.account, accountId)) return;

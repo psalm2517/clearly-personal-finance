@@ -328,7 +328,6 @@ extension SimpleFinRepository on HomebaseRepository {
                       : -e.amountCents,
                 ) ??
                 categoryForMcc(t.mcc) ??
-                categoryForDescription('${t.payee} ${e.description ?? ''}') ??
                 'Other';
           }
           await (_db.update(
@@ -450,7 +449,6 @@ extension SimpleFinRepository on HomebaseRepository {
               amountCents: t.amountCents,
             ) ??
             categoryForMcc(t.mcc) ??
-            categoryForDescription('$label ${t.memo ?? ''}') ??
             'Other';
         final entryId = await _db
             .into(_db.budgetEntries)
@@ -754,6 +752,19 @@ extension SimpleFinRepository on HomebaseRepository {
   ///
   /// Idempotent. Returns how many entries were recategorized.
   Future<int> tidyBankEntries(int profileId) async {
+    await dedupeRecurringMirrors(profileId);
+    final recent =
+        await (_db.select(_db.budgetEntries)..where(
+              (e) =>
+                  e.profileId.equals(profileId) &
+                  e.externalId.isNotNull() &
+                  e.date.isBiggerOrEqualValue(
+                    DateTime.now().subtract(const Duration(days: 75)),
+                  ),
+            ))
+            .get();
+    await _recognizeRecurring(profileId, [for (final e in recent) e.id]);
+
     final accounts = await (_db.select(
       _db.accounts,
     )..where((a) => a.profileId.equals(profileId))).get();
@@ -799,15 +810,13 @@ extension SimpleFinRepository on HomebaseRepository {
           continue;
         }
         if (e.category != 'Other') continue;
-        final guess =
-            await categorize(
-              profileId: profileId,
-              description: '$text ${e.payee ?? ''}',
-              amountCents: e.type == EntryType.income
-                  ? e.amountCents
-                  : -e.amountCents,
-            ) ??
-            categoryForDescription(text);
+        final guess = await categorize(
+          profileId: profileId,
+          description: '$text ${e.payee ?? ''}',
+          amountCents: e.type == EntryType.income
+              ? e.amountCents
+              : -e.amountCents,
+        );
         if (guess == null || guess == 'Other') continue;
         await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
             .write(BudgetEntriesCompanion(category: Value(guess)));
@@ -815,6 +824,82 @@ extension SimpleFinRepository on HomebaseRepository {
       }
     });
     return recategorized;
+  }
+
+  /// Removes entries that Clearly's recurring items made (a paycheck's
+  /// income, a bill's payment, a repeating transaction) when the bank has
+  /// delivered the real transaction they stood for. The bank's entry stays
+  /// and takes the category of the one it replaces if it has none; the bill
+  /// stays marked paid and the paycheck received.
+  ///
+  /// Only where the bank owns the account (see [_bankOwns]): a recurring
+  /// charge on a manual account is the only record of it. Returns how many
+  /// were removed.
+  Future<int> dedupeRecurringMirrors(int profileId) async {
+    final mirrors =
+        await (_db.select(_db.budgetEntries)..where(
+              (e) =>
+                  e.profileId.equals(profileId) &
+                  e.externalId.isNull() &
+                  (e.sourcePaycheckId.isNotNull() |
+                      e.sourceBillPaymentId.isNotNull() |
+                      e.sourceRecurringTransactionLogId.isNotNull()),
+            ))
+            .get();
+    if (mirrors.isEmpty) return 0;
+    final feed =
+        await (_db.select(_db.budgetEntries)..where(
+              (e) => e.profileId.equals(profileId) & e.externalId.isNotNull(),
+            ))
+            .get();
+
+    DateTime day(DateTime d) => DateTime.utc(d.year, d.month, d.day);
+    final used = <int>{};
+    var removed = 0;
+    for (final m in mirrors) {
+      if (!await _bankOwns(
+        profileId: profileId,
+        accountId: m.accountId,
+        cardId: m.cardId,
+      )) {
+        continue;
+      }
+      final isPaycheck = m.sourcePaycheckId != null;
+      final maxGap = isPaycheck ? 5 : 7;
+      BudgetEntry? best;
+      var bestGap = maxGap + 1;
+      for (final f in feed) {
+        if (used.contains(f.id) || f.type != m.type) continue;
+        final delta = (f.amountCents - m.amountCents).abs();
+        final allowed = isPaycheck
+            ? (m.amountCents * 0.03).round().clamp(500, 1 << 40)
+            : (m.amountCents * 0.02).round().clamp(200, 1 << 40);
+        final name = (m.description ?? '').toLowerCase();
+        final text = '${f.description ?? ''} ${f.payee ?? ''}'.toLowerCase();
+        final named = name.length >= 4 && text.contains(name);
+        if (delta > allowed &&
+            !(named && delta <= (m.amountCents * 0.5).round())) {
+          continue;
+        }
+        final gap = day(f.date).difference(day(m.date)).inDays.abs();
+        if (gap < bestGap) {
+          best = f;
+          bestGap = gap;
+        }
+      }
+      if (best == null) continue;
+      used.add(best.id);
+      if (best.category == 'Other' && m.category != 'Other') {
+        await (_db.update(_db.budgetEntries)
+              ..where((x) => x.id.equals(best!.id)))
+            .write(BudgetEntriesCompanion(category: Value(m.category)));
+      }
+      await (_db.delete(
+        _db.budgetEntries,
+      )..where((x) => x.id.equals(m.id))).go();
+      removed++;
+    }
+    return removed;
   }
 
   /// Recognises new bank transactions as a bill paid or a paycheck received

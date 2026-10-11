@@ -7,6 +7,7 @@ import '../main.dart';
 import '../widgets/cashflow_chart.dart';
 import '../widgets/common.dart';
 import '../widgets/projected_cash_section.dart';
+import '../widgets/category_rules.dart';
 import '../widgets/sankey_chart.dart';
 import '../widgets/spending_by_category.dart';
 
@@ -135,6 +136,11 @@ class _CashFlowScreenState extends ConsumerState<CashFlowScreen> {
         SectionHeader(
           'Spending by category',
           icon: Icons.donut_small_outlined,
+          action: TextButton.icon(
+            onPressed: () => showCategoryRules(context),
+            icon: const Icon(Icons.rule, size: 18),
+            label: const Text('Rules'),
+          ),
           info: const InfoButton(
             title: 'Spending by category',
             body: [

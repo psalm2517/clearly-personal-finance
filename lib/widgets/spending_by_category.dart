@@ -198,7 +198,7 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
                         onPressed: () => _moveAll(cat, known),
                       ),
                       Text(
-                        '${(totals[cat]! / total * 100).round()}%',
+                        _share(totals[cat]!, total),
                         style: TextStyle(color: scheme.onSurfaceVariant),
                       ),
                       const SizedBox(width: 14),
@@ -298,6 +298,13 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
       ],
     );
   }
+}
+
+/// A share of the total, never a misleading "0%" for something small.
+String _share(int part, int total) {
+  if (total <= 0 || part <= 0) return '0%';
+  final pct = part / total * 100;
+  return pct < 1 ? '<1%' : '${pct.round()}%';
 }
 
 /// "Up $120 vs last month" in plain colors: spending going up is the warm

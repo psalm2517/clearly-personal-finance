@@ -874,6 +874,9 @@ void main() {
             a.name == 'Brokerage' ? AccountType.retirement : AccountType.checking,
       );
     }
+    // Nothing is categorized by a built-in list: this is the person's rule.
+    await repo.addCategoryRule(
+        profileId: profileId, pattern: 'domino', category: 'Food & Dining');
     await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
 
     final entries = await db.select(db.budgetEntries).get();
@@ -925,6 +928,8 @@ void main() {
         accountId: Value(accountId),
         externalId: const Value('CHK:u1')));
     expect(await repo.hasEntriesMissingPayee(profileId, now: now), isTrue);
+    await repo.addCategoryRule(
+        profileId: profileId, pattern: 'uber eats', category: 'Food & Dining');
 
     await repo.syncSimpleFin(
         profileId: profileId,
@@ -1003,5 +1008,154 @@ void main() {
     expect(targets, hasLength(1));
     expect(targets.single.monthlyTargetCents, 15000,
         reason: 'two targets are added, not one lost');
+  });
+
+  test('without a rule nothing is guessed from the statement text', () async {
+    bridge.accounts = [
+      {
+        'id': 'CHK',
+        'name': 'Checking',
+        'balance': '100.00',
+        'transactions': [txn('f', '-25.00', 'FANDUEL SPORTSBOOK')],
+      },
+    ];
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: (await feed()).single.id,
+        kind: FeedTarget.account);
+    await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+    expect((await db.select(db.budgetEntries).get()).single.category, 'Other');
+
+    // The person's rule moves the one already there...
+    final moved = await repo.addCategoryRule(
+        profileId: profileId, pattern: 'fanduel', category: 'Entertainment');
+    expect(moved, 1);
+    expect((await db.select(db.budgetEntries).get()).single.category,
+        'Entertainment');
+
+    // ...and applies to the next one that arrives.
+    (bridge.accounts.first['transactions'] as List)
+        .add(txn('g', '-10.00', 'FANDUEL INC', posted: DateTime(2026, 6, 14)));
+    await repo.syncSimpleFin(
+        profileId: profileId,
+        client: client,
+        now: now.add(const Duration(days: 1)));
+    final all = await db.select(db.budgetEntries).get();
+    expect(all, hasLength(2));
+    expect(all.every((e) => e.category == 'Entertainment'), isTrue);
+
+    // Same text again changes the category instead of adding a second rule.
+    await repo.addCategoryRule(
+        profileId: profileId, pattern: 'FANDUEL', category: 'Gifts & Donations');
+    expect(await db.select(db.categoryRules).get(), hasLength(1));
+  });
+
+  group('recurring items next to the bank feed', () {
+    Future<int> linked() async {
+      bridge.accounts = [
+        {
+          'id': 'CHK',
+          'name': 'Checking',
+          'balance': '1000.00',
+          'transactions': [
+            txn('p', '763.33', 'CITY OF NEW YORK PAYROLL PPD',
+                posted: DateTime(2026, 6, 12)),
+            txn('b', '-94.00', 'METROPCS', posted: DateTime(2026, 6, 10)),
+          ],
+        },
+      ];
+      await repo.connectSimpleFin(
+          profileId: profileId, setupToken: token(), client: client, now: now);
+      return repo.createFromSimpleFinAccount(
+          profileId: profileId,
+          feedAccountId: (await feed()).single.id,
+          kind: FeedTarget.account);
+    }
+
+    test('a paycheck and bill that named no account are not entered twice',
+        () async {
+      await linked();
+      // Made the way they used to be: mirrors with no account, before the
+      // bank's own transactions arrived.
+      final paycheckId = await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profileId,
+        name: 'Work',
+        date: DateTime(2026, 6, 12),
+        amountCents: 75000,
+        received: const Value(true),
+      ));
+      final billId = await repo.upsertBill(BillsCompanion.insert(
+        profileId: profileId,
+        name: 'MetroPCS',
+        amountCents: 9400,
+        dueDay: 10,
+        category: const Value('Utilities & Bills'),
+      ));
+      // Mirrors as an older build would have written them.
+      await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+          profileId: profileId,
+          date: DateTime(2026, 6, 12),
+          amountCents: 75000,
+          type: EntryType.income,
+          category: const Value('Paycheck'),
+          description: const Value('Work'),
+          sourcePaycheckId: Value(paycheckId)));
+      final payment = await db.into(db.billPayments).insert(
+          BillPaymentsCompanion.insert(
+              profileId: profileId,
+              billId: billId,
+              periodStart: DateTime(2026, 6),
+              paidAt: DateTime(2026, 6, 10)));
+      await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+          profileId: profileId,
+          date: DateTime(2026, 6, 10),
+          amountCents: 9400,
+          type: EntryType.expense,
+          category: const Value('Utilities & Bills'),
+          description: const Value('MetroPCS'),
+          sourceBillPaymentId: Value(payment)));
+      // The bank's side arrives.
+      await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+      await repo.tidyBankEntries(profileId);
+
+      final entries = await db.select(db.budgetEntries).get();
+      expect(entries, hasLength(2), reason: 'one per real transaction');
+      expect(entries.every((e) => e.externalId != null), isTrue);
+      final pay = entries.firstWhere((e) => e.type == EntryType.income);
+      expect(pay.amountCents, 76333);
+      expect(pay.category, 'Paycheck');
+      expect((await db.select(db.billPayments).get()), hasLength(1),
+          reason: 'the bill stays paid');
+    });
+
+    test('with a feed connected, recurring items with no account make no '
+        'entry, but one on a manual account still does', () async {
+      await linked();
+      final manual = await repo.upsertAccount(AccountsCompanion.insert(
+          profileId: profileId,
+          name: 'Cash jar',
+          type: AccountType.cash,
+          balanceCents: const Value(10000)));
+
+      await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profileId,
+        name: 'No account',
+        date: DateTime(2026, 6, 1),
+        amountCents: 50000,
+        received: const Value(true),
+      ));
+      await repo.upsertPaycheck(PaychecksCompanion.insert(
+        profileId: profileId,
+        name: 'To the jar',
+        date: DateTime(2026, 6, 1),
+        amountCents: 20000,
+        received: const Value(true),
+        accountId: Value(manual),
+      ));
+      final entries = await db.select(db.budgetEntries).get();
+      expect(entries.map((e) => e.description), ['To the jar']);
+    });
   });
 }
