@@ -72,6 +72,16 @@ class _AppShellState extends ConsumerState<AppShell> {
           );
         }
       } catch (_) {}
+      // Tidying what the bank has already delivered is local work, so it
+      // happens on every launch rather than waiting for the next sync.
+      try {
+        final connections =
+            await repo.watchSimpleFinConnections(profileId: profileId).first;
+        if (connections.isNotEmpty) {
+          await repo.reconcileBankMovements(profileId, DateTime.now());
+          await repo.tidyBankEntries(profileId);
+        }
+      } catch (_) {}
       // A point for today even on a day with no edits.
       await repo.recordNetWorthSnapshot(profileId: profileId);
       await repo.recordAccountSnapshotsForToday(profileId: profileId);
