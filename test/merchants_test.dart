@@ -41,8 +41,8 @@ void main() {
     for (final c in defaultSpendingCategories.where((c) => c != Cat.other)) {
       expect(categoryHints[c], isNotNull, reason: c);
     }
-    expect(categoryHints[Cat.entertainment], contains('Spotify'));
     expect(categoryHints[Cat.entertainment], contains('Steam'));
+    expect(categoryHints[Cat.subscriptions], contains('Spotify'));
     expect(categoryHints[Cat.subscriptions], contains('cloud'));
     expect(categoryHints[Cat.personal], contains('salon'));
   });

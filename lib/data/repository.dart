@@ -1612,6 +1612,17 @@ class HomebaseRepository {
                 r.profileId.equals(profileId) & r.category.equals(from)))
           .write(CategoryRulesCompanion(category: Value(target)));
 
+      // The Recurring tab's bills and repeating transactions carry a
+      // category too, and would otherwise keep the old name.
+      await (_db.update(_db.bills)
+            ..where((b) =>
+                b.profileId.equals(profileId) & b.category.equals(from)))
+          .write(BillsCompanion(category: Value(target)));
+      await (_db.update(_db.recurringTransactions)
+            ..where((r) =>
+                r.profileId.equals(profileId) & r.category.equals(from)))
+          .write(RecurringTransactionsCompanion(category: Value(target)));
+
       final src = await (_db.select(_db.budgetTargets)
             ..where((t) =>
                 t.profileId.equals(profileId) & t.category.equals(from)))

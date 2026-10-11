@@ -46,11 +46,10 @@ const Map<String, String> categoryHints = {
   Cat.medical: 'Doctor, dentist, vision, pharmacy, urgent care, vet',
   Cat.personal: 'Shopping, clothing, salon, barber, gym, personal care',
   Cat.entertainment:
-      'Streaming and music (Spotify, Netflix), games (Steam), movies, events, '
-      'tickets, betting',
+      'One-off fun: games (Steam), movies, events, tickets, betting',
   Cat.subscriptions:
-      'Software and tools you pay for: cloud storage, hosting, AI tools, '
-      'VPN, app subscriptions',
+      'Anything you pay for on repeat: streaming and music (Spotify, '
+      'Netflix), cloud, hosting, AI tools, apps, VPN',
   Cat.travel: 'Flights, hotels, rentals, trips',
   Cat.education: 'Tuition, books, courses',
   Cat.family: 'Childcare, kids, pet food and supplies',

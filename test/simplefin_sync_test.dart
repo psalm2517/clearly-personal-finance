@@ -1008,6 +1008,17 @@ void main() {
     expect(targets, hasLength(1));
     expect(targets.single.monthlyTargetCents, 15000,
         reason: 'two targets are added, not one lost');
+
+    // Bills and recurring items follow the rename too.
+    await db.into(db.bills).insert(BillsCompanion.insert(
+        profileId: profileId,
+        name: 'Metro',
+        amountCents: 3000,
+        dueDay: 5,
+        category: const Value('Transporation')));
+    await repo.renameCategory(
+        profileId: profileId, from: 'Transporation', to: 'Transportation');
+    expect((await db.select(db.bills).get()).single.category, 'Transportation');
   });
 
   test('without a rule nothing is guessed from the statement text', () async {
