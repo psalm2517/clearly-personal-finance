@@ -539,6 +539,9 @@ class _SummarySection extends StatelessWidget {
             child: total <= 0
                 ? ColoredBox(color: scheme.surfaceContainerHighest)
                 : Row(
+                    // Stretch, or the child-less colored boxes collapse to
+                    // zero height and the bar disappears.
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (final g in groups)
                         if (g.totalCents > 0)
@@ -558,7 +561,7 @@ class _SummarySection extends StatelessWidget {
           ),
         for (final g in groups)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
                 Container(
@@ -575,9 +578,9 @@ class _SummarySection extends StatelessWidget {
                   percent
                       ? '${total <= 0 ? 0 : (g.totalCents / total * 100).round()}%'
                       : fmtCents(g.totalCents),
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
+                  style: const TextStyle(
                     fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
