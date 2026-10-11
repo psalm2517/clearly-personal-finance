@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import '../util/streams.dart';
 import 'csv_import.dart';
 import 'database.dart';
+import 'mcc.dart';
 import 'reminder.dart';
 import 'simplefin.dart';
 import 'transaction_draft.dart';

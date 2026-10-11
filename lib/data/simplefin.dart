@@ -39,6 +39,9 @@ class SimpleFinTransaction {
     required this.amountCents,
     required this.description,
     required this.pending,
+    this.payee,
+    this.memo,
+    this.mcc,
   });
 
   /// Unique within its account, not across accounts.
@@ -51,6 +54,15 @@ class SimpleFinTransaction {
   final int amountCents;
   final String description;
   final bool pending;
+
+  /// The clean merchant name, when the bank provides one. Often missing.
+  final String? payee;
+
+  /// The bank's raw statement text, when it differs from [description].
+  final String? memo;
+
+  /// Merchant category code, when the bank passes it along.
+  final String? mcc;
 }
 
 class SimpleFinAccount {
@@ -273,6 +285,18 @@ class SimpleFinClient {
         if (e is String) errors.add(SimpleFinError(code: '', message: e));
       }
     }
+    // v2 describes each institution once in "connections", and accounts
+    // point at it by conn_id.
+    final connectionNames = <String, String>{};
+    final rawConnections = json['connections'];
+    if (rawConnections is List) {
+      for (final c in rawConnections) {
+        if (c is Map && c['conn_id'] != null) {
+          final name = _text(c['org_name']) ?? _text(c['name']);
+          if (name != null) connectionNames['${c['conn_id']}'] = name;
+        }
+      }
+    }
     final accounts = <SimpleFinAccount>[];
     final rawAccounts = json['accounts'];
     if (rawAccounts is List) {
@@ -299,6 +323,9 @@ class SimpleFinClient {
                 amountCents: cents,
                 description: '${t['description'] ?? ''}'.trim(),
                 pending: pending,
+                payee: _text(t['payee']),
+                memo: _text(t['memo']),
+                mcc: _text(t['mcc']),
               ),
             );
           }
@@ -309,9 +336,11 @@ class SimpleFinClient {
           SimpleFinAccount(
             id: '$id',
             name: '${a['name'] ?? 'Account'}',
-            orgName: org is Map
-                ? (org['name'] ?? org['domain'])?.toString()
-                : null,
+            orgName:
+                connectionNames['${a['conn_id']}'] ??
+                (org is Map
+                    ? (org['name'] ?? org['domain'])?.toString()
+                    : null),
             currency: '${a['currency'] ?? 'USD'}',
             balanceCents: parseDecimalCents('${a['balance']}') ?? 0,
             balanceDate: balanceEpoch == null || balanceEpoch == 0
@@ -323,6 +352,11 @@ class SimpleFinClient {
       }
     }
     return SimpleFinData(accounts: accounts, errors: errors);
+  }
+
+  static String? _text(Object? v) {
+    final t = v?.toString().trim();
+    return t == null || t.isEmpty ? null : t;
   }
 
   static int? _epoch(Object? v) {

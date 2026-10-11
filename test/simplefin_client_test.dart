@@ -177,4 +177,26 @@ void main() {
     expect(parseDecimalCents(''), isNull);
     expect(parseDecimalCents('12.3.4'), isNull);
   });
+
+  test('v2 payee, memo and mcc are read, and the institution comes from '
+      'connections', () {
+    final data = SimpleFinClient.parseResponse('''
+{
+  "connections": [{"conn_id": "C1", "name": "My login", "org_name": "Example Bank"}],
+  "accounts": [{
+    "id": "A", "name": "Checking", "conn_id": "C1", "balance": "10.00",
+    "transactions": [{
+      "id": "t", "posted": 1767312000, "amount": "-55.50",
+      "description": "Fishing bait", "payee": "John's Fishin Shack",
+      "memo": "JOHNS FISHIN SHACK BAIT", "mcc": "5812"
+    }]
+  }]
+}''');
+    final a = data.accounts.single;
+    expect(a.orgName, 'Example Bank');
+    final t = a.transactions.single;
+    expect(t.payee, "John's Fishin Shack");
+    expect(t.memo, 'JOHNS FISHIN SHACK BAIT');
+    expect(t.mcc, '5812');
+  });
 }

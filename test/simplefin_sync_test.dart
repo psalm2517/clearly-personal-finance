@@ -616,4 +616,60 @@ void main() {
       expect(await db.select(db.simpleFinConnections).get(), hasLength(1));
     });
   });
+
+  test('imports keep the payee and categorize by merchant code, with the '
+      "person's own rules taking priority", () async {
+    bridge.accounts = [
+      {
+        'id': 'CHK',
+        'name': 'Everyday',
+        'balance': '100.00',
+        'transactions': [
+          {
+            'id': 'm1',
+            'posted': epoch(DateTime(2026, 6, 10)),
+            'amount': '-85.50',
+            'description': 'Grocery store',
+            'payee': 'Local Grocer',
+            'memo': 'LOCAL GROCER STORE #1133',
+            'mcc': '5411',
+          },
+          {
+            'id': 'm2',
+            'posted': epoch(DateTime(2026, 6, 11)),
+            'amount': '-12.00',
+            'description': 'Lunch',
+            'mcc': '5812',
+          },
+          {
+            'id': 'm3',
+            'posted': epoch(DateTime(2026, 6, 12)),
+            'amount': '-30.00',
+            'description': 'Joes Diner',
+            'mcc': '5812',
+          },
+        ],
+      },
+    ];
+    await repo.connectSimpleFin(
+        profileId: profileId, setupToken: token(), client: client, now: now);
+    await repo.createFromSimpleFinAccount(
+        profileId: profileId,
+        feedAccountId: (await feed()).single.id,
+        kind: FeedTarget.account);
+    await db.into(db.categoryRules).insert(CategoryRulesCompanion.insert(
+        profileId: profileId,
+        field: RuleField.description,
+        pattern: 'diner',
+        category: 'Eating out'));
+
+    await repo.syncSimpleFin(profileId: profileId, client: client, now: now);
+    final entries = await db.select(db.budgetEntries).get();
+    Map<String, BudgetEntry> by = {for (final e in entries) e.externalId!: e};
+    expect(by['CHK:m1']!.category, 'Groceries');
+    expect(by['CHK:m1']!.payee, 'Local Grocer');
+    expect(by['CHK:m2']!.category, 'Dining');
+    expect(by['CHK:m3']!.category, 'Eating out',
+        reason: 'a rule beats the merchant code');
+  });
 }

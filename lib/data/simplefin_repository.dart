@@ -394,12 +394,18 @@ extension SimpleFinRepository on HomebaseRepository {
           );
       final insertedIds = <int>[];
       for (final t in toInsert) {
+        // The person's own rules first, then the merchant's category code,
+        // then nothing.
+        final label = t.description.isNotEmpty
+            ? t.description
+            : (t.payee ?? t.memo ?? '');
         final category =
             await categorize(
               profileId: profileId,
-              description: t.description,
+              description: '$label ${t.payee ?? ''} ${t.memo ?? ''}',
               amountCents: t.amountCents,
             ) ??
+            categoryForMcc(t.mcc) ??
             'Other';
         final entryId = await _db
             .into(_db.budgetEntries)
@@ -410,7 +416,8 @@ extension SimpleFinRepository on HomebaseRepository {
                 amountCents: t.amountCents.abs(),
                 type: t.amountCents >= 0 ? EntryType.income : EntryType.expense,
                 category: Value(category),
-                description: Value(t.description),
+                description: Value(label),
+                payee: Value(t.payee),
                 accountId: Value(
                   feed.target == FeedTarget.account ? targetId : null,
                 ),
