@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/categories.dart';
 import '../data/database.dart';
 import '../main.dart';
 import '../util/money.dart';
@@ -125,10 +126,15 @@ class _SpendingByCategoryState extends ConsumerState<SpendingByCategory> {
     }
     final order = totals.keys.toList()
       ..sort((a, b) => totals[b]!.compareTo(totals[a]!));
-    final known = {
-      ...totals.keys,
-      ...widget.previousTotals.keys,
-    }.where((c) => c != 'Split').toList()..sort();
+    // The built-in categories are always offered, then anything the person
+    // has used that is not one of them.
+    final known = <String>[
+      ...defaultSpendingCategories,
+      ...({...totals.keys, ...widget.previousTotals.keys}
+          .where((c) => c != 'Split' && !defaultSpendingCategories.contains(c))
+          .toList()
+        ..sort()),
+    ];
     final biggest = totals[order.first]!;
 
     return Column(

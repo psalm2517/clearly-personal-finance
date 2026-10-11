@@ -1,3 +1,5 @@
+import 'categories.dart';
+
 /// A category guessed from the wording of a bank statement line, for the
 /// common merchants that show up on everyone's statements. It is the last
 /// resort: the person's own rules come first, then the merchant category
@@ -32,7 +34,7 @@ final _rules = <(RegExp, String)>[
       r"coffee|\bsubway\b|dine|restaurant|diner|bakery|deli\b|sushi|"
       r"klarna\*uber eats",
     ),
-    'Dining',
+    Cat.food,
   ),
   // Food shopping.
   (
@@ -40,7 +42,7 @@ final _rules = <(RegExp, String)>[
       r'grocer|food universe|supermarket|whole foods|trader joe|kroger|'
       r'safeway|aldi|publix|wegmans|costco|instacart|7-eleven|7 eleven',
     ),
-    'Groceries',
+    Cat.groceries,
   ),
   // Fuel.
   (
@@ -48,7 +50,7 @@ final _rules = <(RegExp, String)>[
       r'\bbp\b|shell oil|exxon|chevron|sunoco|mobil\b|citgo|gulf oil|'
       r'wawa|speedway|fuel',
     ),
-    'Gas',
+    Cat.auto,
   ),
   // Getting around.
   (
@@ -56,7 +58,7 @@ final _rules = <(RegExp, String)>[
       r'uber\s*\*?\s*trip|uber trip|lyft|\bmta\b|nyct|paygo|metrocard|'
       r'omny|transit|amtrak|parking|\btoll|e-zpass|ezpass',
     ),
-    'Transportation',
+    Cat.auto,
   ),
   // Phone, internet.
   (
@@ -64,7 +66,7 @@ final _rules = <(RegExp, String)>[
       r't-mobile|metro by|\bvisible\b|verizon|at&t|comcast|xfinity|spectrum|'
       r'cricket wireless|mint mobile|google fi|hetzner',
     ),
-    'Utilities',
+    Cat.utilities,
   ),
   // Insurance.
   (
@@ -72,7 +74,7 @@ final _rules = <(RegExp, String)>[
       r'insurance|\bins\b|geico|allstate|state farm|progressive|'
       r'lemonade|renters|condo ins',
     ),
-    'Insurance',
+    Cat.financial,
   ),
   // Subscriptions and software.
   (
@@ -81,12 +83,12 @@ final _rules = <(RegExp, String)>[
       r'apple\.com/bill|icloud|anthropic|openai|chatgpt|claude|openrouter|'
       r'discord|github|dropbox|adobe|patreon|substack|nitro',
     ),
-    'Subscriptions',
+    Cat.subscriptions,
   ),
   // Games and entertainment.
   (
     RegExp(r'steam|playstation|xbox|nintendo|epic games|twitch|cinema|\bamc\b'),
-    'Entertainment',
+    Cat.entertainment,
   ),
   // Health and pets.
   (
@@ -94,7 +96,7 @@ final _rules = <(RegExp, String)>[
       r'pharmacy|cvs|walgreens|rite aid|dental|clinic|medical|petco|'
       r'petsmart|vet\b',
     ),
-    'Health',
+    Cat.medical,
   ),
   // Shopping.
   (
@@ -102,11 +104,11 @@ final _rules = <(RegExp, String)>[
       r'amazon|amzn|target\b|walmart|best buy|ikea|etsy|ebay|'
       r'apple store|nike|zara|h&m|david yurman|aplpay store',
     ),
-    'Shopping',
+    Cat.personal,
   ),
   // Money moving to people or between banks.
-  (RegExp(r'zelle|venmo|cash app|paypal'), 'Peer payments'),
-  (RegExp(r'transfer|xfer|\bdb-bkrg\b|wefunder'), 'Transfers'),
+  (RegExp(r'zelle|venmo|cash app|paypal'), Cat.transfers),
+  (RegExp(r'transfer|xfer|\bdb-bkrg\b|wefunder'), Cat.transfers),
   // Payments on cards and loans that were not recognised as one of yours.
-  (RegExp(r'payment|pymt|\bpmt\b'), 'Payments'),
+  (RegExp(r'payment|pymt|\bpmt\b'), Cat.financial),
 ];

@@ -790,6 +790,14 @@ extension SimpleFinRepository on HomebaseRepository {
           )..where((x) => x.id.equals(e.id))).go();
           continue;
         }
+        // Names an earlier build gave automatically move to the current ones.
+        final renamed = legacyCategoryNames[e.category];
+        if (renamed != null) {
+          await (_db.update(_db.budgetEntries)..where((x) => x.id.equals(e.id)))
+              .write(BudgetEntriesCompanion(category: Value(renamed)));
+          recategorized++;
+          continue;
+        }
         if (e.category != 'Other') continue;
         final guess =
             await categorize(

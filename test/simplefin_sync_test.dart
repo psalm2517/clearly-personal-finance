@@ -768,7 +768,7 @@ void main() {
     Map<String, BudgetEntry> by = {for (final e in entries) e.externalId!: e};
     expect(by['CHK:m1']!.category, 'Groceries');
     expect(by['CHK:m1']!.payee, 'Local Grocer');
-    expect(by['CHK:m2']!.category, 'Dining');
+    expect(by['CHK:m2']!.category, 'Food & Dining');
     expect(by['CHK:m3']!.category, 'Eating out',
         reason: 'a rule beats the merchant code');
   });
@@ -822,15 +822,15 @@ void main() {
     final changed = await repo.setEntryCategory(
         profileId: profileId,
         id: first,
-        category: 'Dining',
+        category: 'Food & Dining',
         applyToSimilar: true);
     expect(changed, 2);
     final entries = await db.select(db.budgetEntries).get();
-    expect(entries.where((e) => e.category == 'Dining'), hasLength(2));
+    expect(entries.where((e) => e.category == 'Food & Dining'), hasLength(2));
     expect(entries.firstWhere((e) => e.payee == 'Shop').category, 'Other');
     final rule = (await db.select(db.categoryRules).get()).single;
     expect(rule.pattern.toLowerCase(), "dunkin'");
-    expect(rule.category, 'Dining');
+    expect(rule.category, 'Food & Dining');
 
     // Without applyToSimilar only the one entry moves and no rule is made.
     final solo = await add('Cafe', 'Cafe');
@@ -878,7 +878,7 @@ void main() {
 
     final entries = await db.select(db.budgetEntries).get();
     final byDesc = {for (final e in entries) e.description!: e};
-    expect(byDesc["DOMINO'S"]!.category, 'Dining');
+    expect(byDesc["DOMINO'S"]!.category, 'Food & Dining');
     expect(byDesc['SQ *ALMOSTAFA LLC']!.category, 'Other');
     expect(byDesc.containsKey('YOU BOUGHT VOYAGER TECHNOLOGIES INC COM'),
         isFalse);
@@ -933,7 +933,36 @@ void main() {
         lookback: const Duration(days: 90));
     final e = (await db.select(db.budgetEntries).get()).single;
     expect(e.payee, 'Uber Eats');
-    expect(e.category, 'Dining');
+    expect(e.category, 'Food & Dining');
     expect(await repo.hasEntriesMissingPayee(profileId, now: now), isFalse);
+  });
+
+  test('names an earlier build assigned are renamed, the person\'s own are not',
+      () async {
+    final a = await repo.upsertAccount(AccountsCompanion.insert(
+        profileId: profileId, name: 'A', type: AccountType.checking));
+    Future<void> add(String category, {String? ext}) async {
+      await db.into(db.budgetEntries).insert(BudgetEntriesCompanion.insert(
+          profileId: profileId,
+          date: DateTime(2026, 6, 10),
+          amountCents: 500,
+          type: EntryType.expense,
+          category: Value(category),
+          accountId: Value(a),
+          externalId: Value(ext)));
+    }
+
+    await add('Dining', ext: 'X:1');
+    await add('Gas', ext: 'X:2');
+    await add('Dining'); // typed in by hand: the person's own choice
+    await repo.tidyBankEntries(profileId);
+
+    final byExt = {
+      for (final e in await db.select(db.budgetEntries).get())
+        e.externalId ?? 'manual': e.category,
+    };
+    expect(byExt['X:1'], 'Food & Dining');
+    expect(byExt['X:2'], 'Transportation', reason: 'gas is transportation');
+    expect(byExt['manual'], 'Dining');
   });
 }

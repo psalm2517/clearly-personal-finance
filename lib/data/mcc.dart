@@ -1,3 +1,5 @@
+import 'categories.dart';
+
 /// A category for a merchant category code (MCC), the four digit code card
 /// networks attach to every merchant. Banks that pass it along give a far
 /// better signal than the free-text description.
@@ -15,55 +17,55 @@ String? categoryForMcc(String? mcc) {
   return null;
 }
 
-const _ranges = <(int, int, String)>[
+final _ranges = <(int, int, String)>[
   // Food.
-  (5411, 5411, 'Groceries'),
-  (5422, 5422, 'Groceries'),
-  (5441, 5441, 'Groceries'),
-  (5451, 5451, 'Groceries'),
-  (5462, 5462, 'Groceries'),
-  (5499, 5499, 'Groceries'),
-  (5811, 5814, 'Dining'),
+  (5411, 5411, Cat.groceries),
+  (5422, 5422, Cat.groceries),
+  (5441, 5441, Cat.groceries),
+  (5451, 5451, Cat.groceries),
+  (5462, 5462, Cat.groceries),
+  (5499, 5499, Cat.groceries),
+  (5811, 5814, Cat.food),
   // Getting around.
-  (5541, 5542, 'Gas'),
-  (5983, 5983, 'Gas'),
-  (4111, 4131, 'Transportation'),
-  (4784, 4784, 'Transportation'),
-  (4789, 4789, 'Transportation'),
-  (7523, 7523, 'Transportation'),
-  (5511, 5599, 'Auto'),
-  (7531, 7549, 'Auto'),
+  (5541, 5542, Cat.auto),
+  (5983, 5983, Cat.auto),
+  (4111, 4131, Cat.auto),
+  (4784, 4784, Cat.auto),
+  (4789, 4789, Cat.auto),
+  (7523, 7523, Cat.auto),
+  (5511, 5599, Cat.auto),
+  (7531, 7549, Cat.auto),
   // Travel.
-  (3000, 3299, 'Travel'),
-  (3500, 3999, 'Travel'),
-  (4511, 4511, 'Travel'),
-  (4722, 4722, 'Travel'),
-  (7011, 7011, 'Travel'),
-  (7512, 7519, 'Travel'),
+  (3000, 3299, Cat.travel),
+  (3500, 3999, Cat.travel),
+  (4511, 4511, Cat.travel),
+  (4722, 4722, Cat.travel),
+  (7011, 7011, Cat.travel),
+  (7512, 7519, Cat.travel),
   // Bills.
-  (4814, 4816, 'Utilities'),
-  (4899, 4899, 'Utilities'),
-  (4900, 4900, 'Utilities'),
-  (6300, 6399, 'Insurance'),
+  (4814, 4816, Cat.utilities),
+  (4899, 4899, Cat.utilities),
+  (4900, 4900, Cat.utilities),
+  (6300, 6399, Cat.financial),
   // Health and care.
-  (5912, 5912, 'Health'),
-  (8011, 8099, 'Health'),
-  (7230, 7299, 'Personal care'),
-  (7941, 7941, 'Fitness'),
-  (7997, 7997, 'Fitness'),
+  (5912, 5912, Cat.medical),
+  (8011, 8099, Cat.medical),
+  (7230, 7299, Cat.personal),
+  (7941, 7941, Cat.personal),
+  (7997, 7997, Cat.personal),
   // Fun.
-  (5815, 5818, 'Entertainment'),
-  (7832, 7841, 'Entertainment'),
-  (7911, 7999, 'Entertainment'),
-  (5968, 5968, 'Subscriptions'),
+  (5815, 5818, Cat.entertainment),
+  (7832, 7841, Cat.entertainment),
+  (7911, 7999, Cat.entertainment),
+  (5968, 5968, Cat.subscriptions),
   // Shopping and home.
-  (5200, 5271, 'Home'),
-  (5712, 5722, 'Home'),
-  (5300, 5399, 'Shopping'),
-  (5600, 5699, 'Shopping'),
-  (5900, 5999, 'Shopping'),
+  (5200, 5271, Cat.housing),
+  (5712, 5722, Cat.housing),
+  (5300, 5399, Cat.personal),
+  (5600, 5699, Cat.personal),
+  (5900, 5999, Cat.personal),
   // Everything else with a clear meaning.
-  (8211, 8299, 'Education'),
-  (6010, 6012, 'Cash'),
-  (9211, 9399, 'Taxes & fees'),
+  (8211, 8299, Cat.education),
+  (6010, 6012, Cat.financial),
+  (9211, 9399, Cat.taxes),
 ];

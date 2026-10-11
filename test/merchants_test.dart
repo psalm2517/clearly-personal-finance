@@ -4,24 +4,24 @@ import 'package:clearly/data/merchants.dart';
 void main() {
   test('common statement lines get a plain category', () {
     final cases = {
-      'UBER   *EATS': 'Dining',
-      'AplPay UBER EATS help.uber.com CA': 'Dining',
-      "DOMINO'S": 'Dining',
-      'CHIPOTLE MEX GR ONLINE': 'Dining',
-      'SUBWAY': 'Dining',
+      'UBER   *EATS': 'Food & Dining',
+      'AplPay UBER EATS help.uber.com CA': 'Food & Dining',
+      "DOMINO'S": 'Food & Dining',
+      'CHIPOTLE MEX GR ONLINE': 'Food & Dining',
+      'SUBWAY': 'Food & Dining',
       'UBER   *TRIP': 'Transportation',
       'MTA*NYCT PAYGO': 'Transportation',
-      'BP GREAT WASH': 'Gas',
-      'GEICO  *AUTO': 'Insurance',
-      'AGI*RENTERS/CONDO INS': 'Insurance',
-      'SPOTIFY USA NEW YORK NY': 'Subscriptions',
-      'ANTHROPIC* CLAUDE SUSAN FRANCISCO CA': 'Subscriptions',
-      'METRO BY T-MOBILE AUTO': 'Utilities',
+      'BP GREAT WASH': 'Transportation',
+      'GEICO  *AUTO': 'Financial Services',
+      'AGI*RENTERS/CONDO INS': 'Financial Services',
+      'SPOTIFY USA NEW YORK NY': 'Subscriptions & Software',
+      'ANTHROPIC* CLAUDE SUSAN FRANCISCO CA': 'Subscriptions & Software',
+      'METRO BY T-MOBILE AUTO': 'Utilities & Bills',
       'WL *STEAM PURCHASE': 'Entertainment',
       'FOOD UNIVERSE #': 'Groceries',
-      'Zelle payment to ANDREA': 'Peer payments',
+      'Zelle payment to ANDREA': 'Transfers',
       'Online Transfer to CHK ...': 'Transfers',
-      'WF PAYMENT': 'Payments',
+      'WF PAYMENT': 'Financial Services',
     };
     cases.forEach((text, want) {
       expect(categoryForDescription(text), want, reason: text);

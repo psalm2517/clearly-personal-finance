@@ -43,6 +43,21 @@ class _SankeyLink {
 /// grows every time income is logged. If more went out than came in, the gap
 /// becomes a "Shortfall" source on the left, so a flow never leaves a bar
 /// bigger than the bar it left from.
+/// The [keep] largest entries, with everything smaller folded into one
+/// "Smaller categories" bar. A flow chart with thirty slivers has no room
+/// to label any of them, and the long tail is not what it is for: the full
+/// breakdown is in the category list below it.
+List<MapEntry<String, int>> _capped(Map<String, int> by, {required int keep}) {
+  final all = by.entries.where((e) => e.value > 0).toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  if (all.length <= keep + 1) return all;
+  final head = all.take(keep).toList();
+  final rest = all.skip(keep);
+  final count = rest.length;
+  final sum = rest.fold(0, (s, e) => s + e.value);
+  return [...head, MapEntry('$count smaller', sum)];
+}
+
 class IncomeSankeyChart extends StatelessWidget {
   const IncomeSankeyChart({
     super.key,
@@ -56,11 +71,8 @@ class IncomeSankeyChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final income = incomeByCategory.entries.where((e) => e.value > 0).toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final expense =
-        expenseByCategory.entries.where((e) => e.value > 0).toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
+    final income = _capped(incomeByCategory, keep: 6);
+    final expense = _capped(expenseByCategory, keep: 9);
     final totalIncome = income.fold(0, (s, e) => s + e.value);
     final totalOut = expense.fold(0, (s, e) => s + e.value);
     final shortfallCents = totalOut > totalIncome ? totalOut - totalIncome : 0;
@@ -69,7 +81,8 @@ class IncomeSankeyChart extends StatelessWidget {
       return const EmptyState(
         icon: Icons.alt_route,
         title: 'Nothing to show yet',
-        message: 'The flow chart needs at least one income or spending '
+        message:
+            'The flow chart needs at least one income or spending '
             'entry to work from.',
       );
     }
@@ -79,46 +92,73 @@ class IncomeSankeyChart extends StatelessWidget {
 
     for (final e in income) {
       final color = categoryColor(context, e.key);
-      nodes.add(_SankeyNode(
-          label: e.key, amountCents: e.value, color: color, column: 0));
+      nodes.add(
+        _SankeyNode(
+          label: e.key,
+          amountCents: e.value,
+          color: color,
+          column: 0,
+        ),
+      );
     }
     if (shortfallCents > 0) {
-      nodes.add(_SankeyNode(
+      nodes.add(
+        _SankeyNode(
           label: 'Shortfall',
           amountCents: shortfallCents,
           color: scheme.error,
-          column: 0));
+          column: 0,
+        ),
+      );
     }
     final incomeNodeIndex = nodes.length;
-    nodes.add(_SankeyNode(
+    nodes.add(
+      _SankeyNode(
         label: shortfallCents > 0 ? 'Money in' : 'Income',
         amountCents: totalIncome + shortfallCents,
         color: scheme.primary,
-        column: 1));
+        column: 1,
+      ),
+    );
     for (var i = 0; i < income.length; i++) {
-      links.add(_SankeyLink(
+      links.add(
+        _SankeyLink(
           fromNode: i,
           toNode: incomeNodeIndex,
           amountCents: income[i].value,
-          color: categoryColor(context, income[i].key)));
+          color: categoryColor(context, income[i].key),
+        ),
+      );
     }
     if (shortfallCents > 0) {
-      links.add(_SankeyLink(
+      links.add(
+        _SankeyLink(
           fromNode: income.length,
           toNode: incomeNodeIndex,
           amountCents: shortfallCents,
-          color: scheme.error));
+          color: scheme.error,
+        ),
+      );
     }
 
     for (final e in expense) {
       final color = categoryColor(context, e.key);
-      links.add(_SankeyLink(
+      links.add(
+        _SankeyLink(
           fromNode: incomeNodeIndex,
           toNode: nodes.length,
           amountCents: e.value,
-          color: color));
-      nodes.add(_SankeyNode(
-          label: e.key, amountCents: e.value, color: color, column: 2));
+          color: color,
+        ),
+      );
+      nodes.add(
+        _SankeyNode(
+          label: e.key,
+          amountCents: e.value,
+          color: color,
+          column: 2,
+        ),
+      );
     }
     return CustomPaint(
       size: Size.infinite,
@@ -173,7 +213,9 @@ class _SankeyPainter extends CustomPainter {
     final rightIndices = byColumn[2] ?? const <int>[];
     final midTotal = columnTotals[1] ?? 0;
     if (midTotal <= 0) return;
-    final scale = (size.height - _sourceGap * (leftIndices.length - 1).clamp(0, 99)) / midTotal;
+    final scale =
+        (size.height - _sourceGap * (leftIndices.length - 1).clamp(0, 99)) /
+        midTotal;
     if (!scale.isFinite || scale <= 0) return;
 
     // The outflow bars are spread down the right side, using whatever room
@@ -197,7 +239,11 @@ class _SankeyPainter extends CustomPainter {
     for (final entry in byColumn.entries) {
       var y = 0.0;
       final x = columnX[entry.key]!;
-      final gap = entry.key == 2 ? outGap : entry.key == 0 ? _sourceGap : 0.0;
+      final gap = entry.key == 2
+          ? outGap
+          : entry.key == 0
+          ? _sourceGap
+          : 0.0;
       for (final i in entry.value) {
         final h = nodes[i].amountCents * scale;
         rects[i] = Rect.fromLTWH(x, y, _barWidth, h);
@@ -226,7 +272,10 @@ class _SankeyPainter extends CustomPainter {
         ..lineTo(x1, dstTop + h)
         ..cubicTo(midX, dstTop + h, midX, srcTop + h, x0, srcTop + h)
         ..close();
-      canvas.drawPath(path, Paint()..color = link.color.withValues(alpha: 0.32));
+      canvas.drawPath(
+        path,
+        Paint()..color = link.color.withValues(alpha: 0.32),
+      );
     }
 
     // If less flowed out than came in, the bottom of the middle bar has
@@ -241,31 +290,37 @@ class _SankeyPainter extends CustomPainter {
       if (tailHeight > 2) {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-              Rect.fromLTRB(midRect.left, tailTop, midRect.right, midRect.bottom),
-              const Radius.circular(2)),
+            Rect.fromLTRB(midRect.left, tailTop, midRect.right, midRect.bottom),
+            const Radius.circular(2),
+          ),
           Paint()..color = mutedColor.withValues(alpha: 0.75),
         );
         final tailCents = midTotal - rightTotal;
         final pct = baseTotal == 0 ? 0.0 : tailCents / baseTotal * 100;
         final tailLabel = TextPainter(
-          text: TextSpan(children: [
-            TextSpan(
-              text: 'Not spent or moved yet',
-              style: TextStyle(
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: 'Not spent or moved yet',
+                style: TextStyle(
                   color: mutedColor,
                   fontSize: 12,
-                  fontWeight: FontWeight.w600),
-            ),
-            TextSpan(
-              text: '\n${fmtCents(tailCents)} (${pct.toStringAsFixed(0)}%)',
-              style: TextStyle(color: mutedColor, fontSize: 11),
-            ),
-          ]),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              TextSpan(
+                text: '\n${fmtCents(tailCents)} (${pct.toStringAsFixed(0)}%)',
+                style: TextStyle(color: mutedColor, fontSize: 11),
+              ),
+            ],
+          ),
           textDirection: TextDirection.ltr,
           maxLines: 2,
         )..layout(maxWidth: size.width / 3);
-        final y = (tailTop + tailHeight / 2 - tailLabel.height / 2)
-            .clamp(0.0, size.height - tailLabel.height);
+        final y = (tailTop + tailHeight / 2 - tailLabel.height / 2).clamp(
+          0.0,
+          size.height - tailLabel.height,
+        );
         // Only when it fits beside the tail without sitting on the ribbons.
         if (tailHeight >= tailLabel.height * 0.8) {
           tailLabel.paint(canvas, Offset(midRect.right + 8, y));
@@ -292,19 +347,22 @@ class _SankeyPainter extends CustomPainter {
       final amount = '${fmtCents(n.amountCents)} (${pct.toStringAsFixed(0)}%)';
       final compact = rect.height < _minLabelHeight;
       labels[i] = TextPainter(
-        text: TextSpan(children: [
-          TextSpan(
-            text: n.label,
-            style: TextStyle(
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: n.label,
+              style: TextStyle(
                 color: textColor,
                 fontSize: compact ? 11 : 12,
-                fontWeight: FontWeight.w600),
-          ),
-          TextSpan(
-            text: compact ? '  $amount' : '\n$amount',
-            style: TextStyle(color: mutedColor, fontSize: 11),
-          ),
-        ]),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            TextSpan(
+              text: compact ? '  $amount' : '\n$amount',
+              style: TextStyle(color: mutedColor, fontSize: 11),
+            ),
+          ],
+        ),
         textDirection: TextDirection.ltr,
         maxLines: compact ? 1 : 2,
       )..layout(maxWidth: size.width / 2 - 20);
@@ -329,6 +387,10 @@ class _SankeyPainter extends CustomPainter {
         final maxY = limit - labels[i]!.height;
         if (labelY[i]! > maxY) labelY[i] = maxY;
         limit = labelY[i]! - labelGap;
+      }
+      // Never above the top edge, whatever the pushing did.
+      for (final i in shown) {
+        if (labelY[i]! < 0) labelY[i] = 0;
       }
     }
 
