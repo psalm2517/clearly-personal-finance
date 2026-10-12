@@ -161,6 +161,8 @@ true-black Obsidian theme and a choice of accent color, all in Settings.
 Colours for the Catppuccin flavors come from the official
 `catppuccin_flutter` package rather than being copied into this repository.
 
+![Theme and accent color picker](docs/screenshots/theme.png)
+
 ## Building
 
 See [BUILD.md](BUILD.md).
